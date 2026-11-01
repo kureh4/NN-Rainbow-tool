@@ -1,12 +1,13 @@
-name: Deploy Web UI
+name: Deploy VCC Page
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "web/**"
-      - ".github/workflows/pages.yml"
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/pages.yml"
+      - "Website/**"
 
 permissions:
   contents: read
@@ -14,7 +15,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: github-pages
   cancel-in-progress: true
 
 jobs:
@@ -23,15 +24,21 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: main
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
-      - name: Upload site
+
+      - name: Upload Website
         uses: actions/upload-pages-artifact@v4
         with:
-          path: web
+          path: Website
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4

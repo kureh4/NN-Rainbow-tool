@@ -1,16 +1,20 @@
 {
-  "name": "jp.nekoneko.nn-rainbow-tool",
+  "name": "com.nekoneko.nn-rainbow-tool",
   "displayName": "NN - Rainbow tool",
   "version": "1.0.0",
   "unity": "2022.3",
-  "description": "VRChat avatar lilToon materials rainbow controller. Non-destructive setup using NDMF.",
+  "description": "VRChatアバターのlilToonマテリアルへ、NDMFで非破壊にレインボー表現を追加するツールです。",
   "author": {
     "name": "ねこねこ",
-    "email": "65277297+kureh4@users.noreply.github.com",
-    "url": "https://github.com/kureh4"
+    "url": "https://github.com/kureh4/NN-Rainbow-tool"
   },
-  "url": "https://raw.githubusercontent.com/kureh4/NN-Rainbow-tool/main/Releases/jp.nekoneko.nn-rainbow-tool-1.0.0.zip",
-  "repo": "https://raw.githubusercontent.com/kureh4/NN-Rainbow-tool/main/index.json",
+  "keywords": [
+    "VRChat",
+    "Avatar",
+    "lilToon",
+    "NDMF",
+    "Rainbow"
+  ],
   "vpmDependencies": {
     "com.vrchat.avatars": ">=3.10.0 <4.0.0",
     "nadena.dev.ndmf": ">=1.14.7 <2.0.0-a",

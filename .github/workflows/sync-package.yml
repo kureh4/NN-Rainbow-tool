@@ -1,33 +1,40 @@
 name: Build VPM Package
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "Packages/jp.nekoneko.nn-rainbow-tool/**"
-      - ".github/workflows/sync-package.yml"
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "Packages/com.nekoneko.nn-rainbow-tool/**"
+      - ".github/workflows/sync-package.yml"
 
 permissions:
   contents: write
+
+concurrency:
+  group: vpm-package
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+        with:
+          ref: main
 
       - name: Validate package manifest
-        run: python -m json.tool Packages/jp.nekoneko.nn-rainbow-tool/package.json > /dev/null
+        run: python -m json.tool Packages/com.nekoneko.nn-rainbow-tool/package.json > /dev/null
 
       - name: Build VPM package ZIP
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p Releases
-          ZIP="$GITHUB_WORKSPACE/Releases/jp.nekoneko.nn-rainbow-tool-1.0.0.zip"
+          ZIP="$GITHUB_WORKSPACE/Releases/com.nekoneko.nn-rainbow-tool-1.0.0.zip"
           rm -f "$ZIP"
-          cd Packages/jp.nekoneko.nn-rainbow-tool
+          cd Packages/com.nekoneko.nn-rainbow-tool
           zip -qr "$ZIP" .
           unzip -t "$ZIP"
 
@@ -35,17 +42,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          SHA="$(sha256sum Releases/jp.nekoneko.nn-rainbow-tool-1.0.0.zip | awk '{print $1}')"
+          SHA="$(sha256sum Releases/com.nekoneko.nn-rainbow-tool-1.0.0.zip | awk '{print $1}')"
           python - "$SHA" <<'PY'
           import json, sys
-          path = "index.json"
           sha = sys.argv[1]
-          with open(path, "r", encoding="utf-8") as f:
-              data = json.load(f)
-          data["packages"]["jp.nekoneko.nn-rainbow-tool"]["versions"]["1.0.0"]["zipSHA256"] = sha
-          with open(path, "w", encoding="utf-8") as f:
-              json.dump(data, f, ensure_ascii=False, indent=2)
-              f.write("\n")
+          for path in ("Website/index.json", "index.json"):
+              with open(path, "r", encoding="utf-8") as f:
+                  data = json.load(f)
+              data["packages"]["com.nekoneko.nn-rainbow-tool"]["versions"]["1.0.0"]["zipSHA256"] = sha
+              with open(path, "w", encoding="utf-8") as f:
+                  json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
+                  f.write("\n")
           PY
 
       - name: Commit generated VPM files
@@ -54,7 +61,8 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Releases/jp.nekoneko.nn-rainbow-tool-1.0.0.zip index.json
+          git add Releases/com.nekoneko.nn-rainbow-tool-1.0.0.zip Website/index.json index.json
+          git rm -f --ignore-unmatch Releases/jp.nekoneko.nn-rainbow-tool-1.0.0.zip
           if git diff --cached --quiet; then
             exit 0
           fi
