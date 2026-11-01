@@ -1,0 +1,31 @@
+{
+  "name": "Nekoneko.NNRainbow.Editor",
+  "rootNamespace": "Nekoneko.NNRainbow.Editor",
+  "references": [
+    "Nekoneko.NNRainbow.Runtime",
+    "nadena.dev.ndmf",
+    "nadena.dev.ndmf.vrchat",
+    "VRC.SDK3A",
+    "VRC.SDK3A.Editor",
+    "lilToon.Editor"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [
+    "NNR_VRCSDK3_AVATARS"
+  ],
+  "versionDefines": [
+    {
+      "name": "com.vrchat.avatars",
+      "expression": "[3.10.0,999)",
+      "define": "NNR_VRCSDK3_AVATARS"
+    }
+  ],
+  "noEngineReferences": false
+}

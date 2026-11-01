@@ -1,10 +1,10 @@
-name: Sync VPM Package Source
+name: Build VPM Package
 
 on:
   push:
     branches: [main]
     paths:
-      - "Releases/jp.nekoneko.nn-rainbow-tool-*.zip"
+      - "Packages/jp.nekoneko.nn-rainbow-tool/**"
       - ".github/workflows/sync-package.yml"
   workflow_dispatch:
 
@@ -12,27 +12,51 @@ permissions:
   contents: write
 
 jobs:
-  sync:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Extract VPM package
+
+      - name: Validate package manifest
+        run: python -m json.tool Packages/jp.nekoneko.nn-rainbow-tool/package.json > /dev/null
+
+      - name: Build VPM package ZIP
         shell: bash
         run: |
-          set -e
-          PACKAGE_DIR="Packages/jp.nekoneko.nn-rainbow-tool"
-          ZIP="Releases/jp.nekoneko.nn-rainbow-tool-1.0.0.zip"
-          rm -rf "$PACKAGE_DIR"
-          mkdir -p "$PACKAGE_DIR"
-          unzip -q "$ZIP" -d "$PACKAGE_DIR"
-      - name: Commit synced package source
+          set -euo pipefail
+          mkdir -p Releases
+          ZIP="$GITHUB_WORKSPACE/Releases/jp.nekoneko.nn-rainbow-tool-1.0.0.zip"
+          rm -f "$ZIP"
+          cd Packages/jp.nekoneko.nn-rainbow-tool
+          zip -qr "$ZIP" .
+          unzip -t "$ZIP"
+
+      - name: Update listing checksum
         shell: bash
         run: |
-          if git diff --quiet -- Packages/jp.nekoneko.nn-rainbow-tool && git diff --cached --quiet; then
-            exit 0
-          fi
+          set -euo pipefail
+          SHA="$(sha256sum Releases/jp.nekoneko.nn-rainbow-tool-1.0.0.zip | awk '{print $1}')"
+          python - "$SHA" <<'PY'
+          import json, sys
+          path = "index.json"
+          sha = sys.argv[1]
+          with open(path, "r", encoding="utf-8") as f:
+              data = json.load(f)
+          data["packages"]["jp.nekoneko.nn-rainbow-tool"]["versions"]["1.0.0"]["zipSHA256"] = sha
+          with open(path, "w", encoding="utf-8") as f:
+              json.dump(data, f, ensure_ascii=False, indent=2)
+              f.write("\n")
+          PY
+
+      - name: Commit generated VPM files
+        shell: bash
+        run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Packages/jp.nekoneko.nn-rainbow-tool
-          git commit -m "Sync VPM package source"
+          git add Releases/jp.nekoneko.nn-rainbow-tool-1.0.0.zip index.json
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Build VPM package 1.0.0"
           git push
