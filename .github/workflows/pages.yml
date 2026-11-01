@@ -8,6 +8,10 @@ on:
     paths:
       - ".github/workflows/pages.yml"
       - "Website/**"
+  workflow_run:
+    workflows: [Build VPM Package]
+    types:
+      - completed
 
 permissions:
   contents: read
@@ -20,6 +24,7 @@ concurrency:
 
 jobs:
   deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.workflow_run.conclusion == 'success' }}
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

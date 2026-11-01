@@ -16,7 +16,9 @@ https://kureh4.github.io/NN-Rainbow-tool/
 
 https://kureh4.github.io/NN-Rainbow-tool/index.json
 
-## Package
+## Unity内の構成
+
+VCCで導入すると本体はPackagesへ入り、ユーザーが配置するPrefabは初回読み込み時にAssetsへ自動コピーされます。
 
 ```text
 Packages/
@@ -26,4 +28,11 @@ Packages/
    ├─ Resources/
    ├─ Runtime/
    └─ package.json
+
+Assets/
+└─ nekoneko/
+   └─ NN - Rainbow tool/
+      └─ NN_Rainbow.prefab
 ```
+
+既にAssets側にPrefabが存在する場合は自動上書きしません。
