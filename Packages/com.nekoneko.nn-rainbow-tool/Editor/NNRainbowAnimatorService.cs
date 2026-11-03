@@ -259,8 +259,12 @@ namespace Nekoneko.NNRainbow.Editor
             foreach (var renderer in target.Renderers)
             {
                 if (renderer == null) continue;
+                if (!target.SupportedSlots.TryGetValue(renderer, out var slots) || slots.Count == 0) continue;
+
                 var emissionLayer = target.EmissionLayerByRenderer.TryGetValue(renderer, out var el) ? el : 0;
                 if (emissionLayer == 0) continue;
+
+                var materials = renderer.sharedMaterials ?? Array.Empty<Material>();
                 var path = ResolvePath(animatorServices, avatarRoot, renderer);
                 var suffix = emissionLayer == 1 ? "" : "2nd";
                 var isGlobal = mode == RainbowMode.GlobalHue;
@@ -268,12 +272,17 @@ namespace Nekoneko.NNRainbow.Editor
                 var tiling = isGlobal ? 0.001f : 1f;
                 var scroll = (isGlobal || isFlow) ? Mathf.Clamp01(speed01) * MaxScrollSpeed : 0f;
 
-                AddConstant(native, path, typeof(Renderer), $"material._Emission{suffix}Map_ST.x", tiling); bindingCount++;
-                AddConstant(native, path, typeof(Renderer), $"material._Emission{suffix}Map_ST.y", tiling); bindingCount++;
-                AddConstant(native, path, typeof(Renderer), $"material._Emission{suffix}Map_ST.z", 0f); bindingCount++;
-                AddConstant(native, path, typeof(Renderer), $"material._Emission{suffix}Map_ST.w", 0f); bindingCount++;
-                AddConstant(native, path, typeof(Renderer), $"material._Emission{suffix}Map_ScrollRotate.x", scroll); bindingCount++;
-                AddConstant(native, path, typeof(Renderer), $"material._Emission{suffix}Map_ScrollRotate.y", 0f); bindingCount++;
+                foreach (var slot in slots)
+                {
+                    if (slot < 0 || slot >= materials.Length || materials[slot] == null) continue;
+
+                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ST.x"), tiling); bindingCount++;
+                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ST.y"), tiling); bindingCount++;
+                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ST.z"), 0f); bindingCount++;
+                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ST.w"), 0f); bindingCount++;
+                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ScrollRotate.x"), scroll); bindingCount++;
+                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ScrollRotate.y"), 0f); bindingCount++;
+                }
             }
 
             var result = VirtualClip.Clone(animatorServices.ControllerContext.CloneContext, native);
@@ -288,16 +297,32 @@ namespace Nekoneko.NNRainbow.Editor
             foreach (var renderer in target.Renderers)
             {
                 if (renderer == null) continue;
+                if (!target.SupportedSlots.TryGetValue(renderer, out var slots) || slots.Count == 0) continue;
+
                 var emissionLayer = target.EmissionLayerByRenderer.TryGetValue(renderer, out var el) ? el : 0;
                 if (emissionLayer == 0) continue;
+
+                var materials = renderer.sharedMaterials ?? Array.Empty<Material>();
                 var path = ResolvePath(animatorServices, avatarRoot, renderer);
                 var suffix = emissionLayer == 1 ? "" : "2nd";
-                AddConstant(native, path, typeof(Renderer), $"material._Emission{suffix}Blend", blend);
-                bindingCount++;
+
+                foreach (var slot in slots)
+                {
+                    if (slot < 0 || slot >= materials.Length || materials[slot] == null) continue;
+                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Blend"), blend);
+                    bindingCount++;
+                }
             }
             var result = VirtualClip.Clone(animatorServices.ControllerContext.CloneContext, native);
             UnityEngine.Object.DestroyImmediate(native);
             return result;
+        }
+
+        private static string MaterialProperty(int materialCount, int slot, string property)
+        {
+            return materialCount <= 1
+                ? $"material.{property}"
+                : $"material.[{slot}].{property}";
         }
 
         private static string ResolvePath(AnimatorServicesContext animatorServices, Transform avatarRoot, Renderer renderer)
