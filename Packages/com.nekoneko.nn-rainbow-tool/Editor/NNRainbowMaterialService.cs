@@ -36,6 +36,7 @@ namespace Nekoneko.NNRainbow.Editor
                     target.EmissionLayerByRenderer[renderer] = emissionLayer;
 
                     var clones = new Dictionary<Material, Material>();
+                    var customFurByOriginal = new Dictionary<Material, bool>();
                     foreach (var slot in slots)
                     {
                         if (slot < 0 || slot >= src.Length) continue;
@@ -44,10 +45,22 @@ namespace Nekoneko.NNRainbow.Editor
                         if (!clones.TryGetValue(original, out var clone))
                         {
                             clone = new Material(original) { name = original.name + "__NNR_STOCK_EMISSION" };
+                            var customFur = TryApplyCustomFurShader(clone, original, rainbowTexture);
                             PrepareEmission(clone, emissionLayer, rainbowTexture);
                             clones.Add(original, clone);
+                            customFurByOriginal[original] = customFur;
                         }
                         dst[slot] = clone;
+
+                        if (customFurByOriginal.TryGetValue(original, out var isCustomFur) && isCustomFur)
+                        {
+                            if (!target.FurCustomSlots.TryGetValue(renderer, out var customSlots))
+                            {
+                                customSlots = new List<int>();
+                                target.FurCustomSlots[renderer] = customSlots;
+                            }
+                            if (!customSlots.Contains(slot)) customSlots.Add(slot);
+                        }
                     }
                     renderer.sharedMaterials = dst;
 
@@ -55,6 +68,45 @@ namespace Nekoneko.NNRainbow.Editor
                         Debug.LogWarning($"[NN - Rainbow] '{target.DisplayName}/{renderer.name}' already uses both Emission slots. Rainbow is skipped for this renderer to preserve the original material.");
                 }
             }
+            return true;
+        }
+
+        private static bool TryApplyCustomFurShader(Material clone, Material original, Texture2D rainbowTexture)
+        {
+            if (clone == null || original == null) return false;
+            if (!NNRainbowShaderVariants.TryGetVariant(original, out var variant)) return false;
+
+            string shaderName = null;
+            switch (variant)
+            {
+                case NNRainbowVariant.Fur:
+                    shaderName = "Hidden/NNRainbow/Fur";
+                    break;
+                case NNRainbowVariant.FurCutout:
+                    shaderName = "Hidden/NNRainbow/FurCutout";
+                    break;
+                case NNRainbowVariant.FurTwoPass:
+                    shaderName = "Hidden/NNRainbow/FurTwoPass";
+                    break;
+            }
+
+            if (string.IsNullOrEmpty(shaderName)) return false;
+
+            var shader = Shader.Find(shaderName);
+            if (shader == null || !shader.isSupported)
+            {
+                Debug.LogWarning("[NN - Rainbow] Fur custom shader unavailable; using hue fallback: " + shaderName);
+                return false;
+            }
+
+            var queue = clone.renderQueue;
+            clone.shader = shader;
+            clone.renderQueue = queue;
+
+            if (clone.HasProperty("_NNRRainbowTex")) clone.SetTexture("_NNRRainbowTex", rainbowTexture);
+            if (clone.HasProperty("_NNRMode")) clone.SetFloat("_NNRMode", 0f);
+            if (clone.HasProperty("_NNRScroll")) clone.SetFloat("_NNRScroll", 0f);
+            if (clone.HasProperty("_NNRBlend")) clone.SetFloat("_NNRBlend", 0f);
             return true;
         }
 

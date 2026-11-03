@@ -1,0 +1,6 @@
+        //----------------------------------------------------------------------------------------------------------------------
+        // NN - Rainbow
+        [HideInInspector] _NNRMode ("NNR Mode", Float) = 0
+        [HideInInspector] _NNRScroll ("NNR Scroll", Float) = 0
+        [HideInInspector] _NNRBlend ("NNR Blend", Range(0,1)) = 0
+        [HideInInspector] [NoScaleOffset] _NNRRainbowTex ("NNR Rainbow", 2D) = "white" {}
