@@ -16,6 +16,8 @@ namespace Nekoneko.NNRainbow.Editor
         private const float MaxScrollSpeed = 0.80f;
         private const float BaseRainbowBlend = 0.32f;
         private const float GlowRainbowBlend = 0.90f;
+        private const float DiagonalGradientTiling = 0.70710678f; // 1 / sqrt(2)
+        private const float DiagonalGradientAngle = 0.78539816f; // 45 degrees
 
         public static void Install(BuildContext context, AnimatorServicesContext animatorServices, Transform avatarRoot, IReadOnlyList<NNRainbowTarget> targets)
         {
@@ -203,39 +205,31 @@ namespace Nekoneko.NNRainbow.Editor
         {
             if (target.FurSlots.Count == 0) return 0;
 
-            // v1.0.11 の全体色相クリップはそのまま維持する。
-            // 今回は Type=2 (グラデーション) だけを独立させ、Type=3 は従来どおり
-            // 安定している全体色相クリップへフォールバックさせる。
-            var off = MakeFurColorOffClip(animatorServices, avatarRoot, target, out var c0);
+            // 全体色相(Type=1)だけは、v1.0.11以降で安定しているFurの_Colorアニメーションを維持する。
+            // グラデーション(Type=2) / 流れる虹(Type=3)ではFur本体色を元のままにし、
+            // 共通のEmission虹テクスチャだけで斜めパターンを表示する。
+            var original = MakeFurColorOffClip(animatorServices, avatarRoot, target, out var c0);
             var rainbow = MakeFurRainbowClip(animatorServices, avatarRoot, target, out var c1);
-            var gradient = MakeFurGradientClip(animatorServices, avatarRoot, target, out var c2);
-            var maxBindings = Math.Max(c0, Math.Max(c1, c2));
+            var maxBindings = Math.Max(c0, c1);
             if (maxBindings == 0) return 0;
 
             var layer = fx.AddLayer(LayerPriority.Default, $"NNR/{target.Id}/Fur Color");
             layer.DefaultWeight = 1f;
             var sm = layer.StateMachine;
 
-            var sOff = sm.AddState("Fur Original", off);
+            var sOriginal = sm.AddState("Fur Original", original);
             var sRainbow = sm.AddState("Fur 全体色相", rainbow);
-            var sGradient = sm.AddState("Fur グラデーション", gradient);
-            sOff.WriteDefaultValues = false;
+            sOriginal.WriteDefaultValues = false;
             sRainbow.WriteDefaultValues = false;
-            sGradient.WriteDefaultValues = false;
             sRainbow.Speed = 1f;
             sRainbow.SpeedParameter = speedParameter;
-            sm.DefaultState = sOff;
+            sm.DefaultState = sOriginal;
 
-            AddTransition(sOff, sRainbow, CondIf(enableParameter), CondEquals(typeParameter, 1f));
-            AddTransition(sOff, sGradient, CondIf(enableParameter), CondEquals(typeParameter, 2f));
-            AddTransition(sOff, sRainbow, CondIf(enableParameter), CondEquals(typeParameter, 3f));
+            AddTransition(sOriginal, sRainbow, CondIf(enableParameter), CondEquals(typeParameter, 1f));
 
-            AddTransition(sRainbow, sOff, CondIfNot(enableParameter));
-            AddTransition(sGradient, sOff, CondIfNot(enableParameter));
-
-            AddTransition(sRainbow, sGradient, CondEquals(typeParameter, 2f));
-            AddTransition(sGradient, sRainbow, CondEquals(typeParameter, 1f));
-            AddTransition(sGradient, sRainbow, CondEquals(typeParameter, 3f));
+            AddTransition(sRainbow, sOriginal, CondIfNot(enableParameter));
+            AddTransition(sRainbow, sOriginal, CondEquals(typeParameter, 2f));
+            AddTransition(sRainbow, sOriginal, CondEquals(typeParameter, 3f));
 
             return maxBindings;
         }
@@ -369,80 +363,6 @@ namespace Nekoneko.NNRainbow.Editor
             return result;
         }
 
-        private static VirtualClip MakeFurGradientClip(
-            AnimatorServicesContext animatorServices,
-            Transform avatarRoot,
-            NNRainbowTarget target,
-            out int bindingCount)
-        {
-            var native = new AnimationClip
-            {
-                name = $"NNR_{target.Id}_Fur_Gradient",
-                frameRate = 60f
-            };
-            bindingCount = 0;
-
-            foreach (var pair in target.FurSlots)
-            {
-                var renderer = pair.Key;
-                if (renderer == null) continue;
-                var materials = renderer.sharedMaterials ?? Array.Empty<Material>();
-                var path = ResolvePath(animatorServices, avatarRoot, renderer);
-
-                foreach (var slot in pair.Value)
-                {
-                    if (slot < 0 || slot >= materials.Length) continue;
-                    var mat = materials[slot];
-                    if (mat == null || !mat.HasProperty("_Color")) continue;
-
-                    // lilToon Fur の既存プロパティだけで作る。
-                    // 本体色と Fur Rim を別色にすることで、シェーダー本来の
-                    // Fur Rim 補間を使って毛の輪郭側へ色が変わるようにする。
-                    var original = mat.GetColor("_Color");
-                    var brightness = Mathf.Clamp(Mathf.Max(original.r, Mathf.Max(original.g, original.b)), 0.35f, 1f);
-
-                    var bodyBrightness = Mathf.Clamp(brightness * 0.65f, 0.35f, 0.70f);
-                    var body = Color.HSVToRGB(0.92f, 0.90f, bodyBrightness);
-                    body.a = original.a;
-                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_Color.r"), body.r);
-                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_Color.g"), body.g);
-                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_Color.b"), body.b);
-                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_Color.a"), body.a);
-                    bindingCount += 4;
-
-                    if (mat.HasProperty("_FurRimColor"))
-                    {
-                        // Fur Rim is additive, so keep it below full intensity to avoid washing the tips to white.
-                        var rimBrightness = Mathf.Clamp(brightness * 0.65f, 0.55f, 0.72f);
-                        var rim = Color.HSVToRGB(0.52f, 1.00f, rimBrightness);
-                        rim.a = 1f;
-                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurRimColor.r"), rim.r);
-                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurRimColor.g"), rim.g);
-                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurRimColor.b"), rim.b);
-                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurRimColor.a"), rim.a);
-                        bindingCount += 4;
-                    }
-
-                    // Fresnel をほぼ無効化し、lilToon 内部の input.furLayer 係数を主役にする。
-                    // _FurRimColor は input.furLayer と乗算されるため、根元では弱く、毛先ほど強くなる。
-                    if (mat.HasProperty("_FurRimFresnelPower"))
-                    {
-                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurRimFresnelPower"), 0.01f);
-                        bindingCount++;
-                    }
-                    if (mat.HasProperty("_FurRimAntiLight"))
-                    {
-                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurRimAntiLight"), 0f);
-                        bindingCount++;
-                    }
-                }
-            }
-
-            var result = VirtualClip.Clone(animatorServices.ControllerContext.CloneContext, native);
-            UnityEngine.Object.DestroyImmediate(native);
-            return result;
-        }
-
         private static AnimationCurve MakeRainbowCurve(float brightness, int channel)
         {
             var curve = new AnimationCurve();
@@ -550,9 +470,16 @@ namespace Nekoneko.NNRainbow.Editor
                 var path = ResolvePath(animatorServices, avatarRoot, renderer);
                 var suffix = emissionLayer == 1 ? "" : "2nd";
                 var isGlobal = mode == RainbowMode.GlobalHue;
+                var isGradient = mode == RainbowMode.Gradient;
                 var isFlow = mode == RainbowMode.Flowing;
-                var tiling = isGlobal ? 0.001f : 1f;
-                var scroll = (isGlobal || isFlow) ? Mathf.Clamp01(speed01) * MaxScrollSpeed : 0f;
+                var isDiagonal = isGradient || isFlow;
+
+                // The rainbow texture is a horizontal 1D hue strip.
+                // Rotating the emission UV by 45 degrees makes the strip run from upper-left to lower-right.
+                // 1/sqrt(2) tiling gives roughly one hue cycle across that diagonal.
+                var tiling = isGlobal ? 0.001f : isDiagonal ? DiagonalGradientTiling : 1f;
+                var scrollX = (isGlobal || isFlow) ? Mathf.Clamp01(speed01) * MaxScrollSpeed : 0f;
+                var rotation = isDiagonal ? DiagonalGradientAngle : 0f;
 
                 foreach (var slot in slots)
                 {
@@ -562,8 +489,10 @@ namespace Nekoneko.NNRainbow.Editor
                     AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ST.y"), tiling); bindingCount++;
                     AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ST.z"), 0f); bindingCount++;
                     AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ST.w"), 0f); bindingCount++;
-                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ScrollRotate.x"), scroll); bindingCount++;
+                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ScrollRotate.x"), scrollX); bindingCount++;
                     AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ScrollRotate.y"), 0f); bindingCount++;
+                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ScrollRotate.z"), rotation); bindingCount++;
+                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ScrollRotate.w"), 0f); bindingCount++;
                 }
             }
 
