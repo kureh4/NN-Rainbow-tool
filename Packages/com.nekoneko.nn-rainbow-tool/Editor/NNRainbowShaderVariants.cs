@@ -10,7 +10,10 @@ namespace Nekoneko.NNRainbow.Editor
         Cutout,
         CutoutOutline,
         Transparent,
-        TransparentOutline
+        TransparentOutline,
+        Fur,
+        FurCutout,
+        FurTwoPass
     }
 
     internal static class NNRainbowShaderVariants
@@ -23,6 +26,12 @@ namespace Nekoneko.NNRainbow.Editor
             var shaderName = material.shader.name ?? string.Empty;
             if (shaderName.IndexOf("lilToon", StringComparison.OrdinalIgnoreCase) < 0)
                 return false;
+
+            // Standard lilToon Fur variants use the same Emission / Emission2nd
+            // properties as the normal shader family, so NN - Rainbow can keep
+            // the original Fur shader and drive only its unused emission slot.
+            if (TryGetFurVariant(shaderName, out variant))
+                return true;
 
             if (ContainsAny(shaderName, "Lite", "Fur", "Gem", "Refraction", "Tessellation", "FakeShadow"))
                 return false;
@@ -57,6 +66,30 @@ namespace Nekoneko.NNRainbow.Editor
             }
         }
 
+        private static bool TryGetFurVariant(string shaderName, out NNRainbowVariant variant)
+        {
+            if (string.Equals(shaderName, "Hidden/lilToonFur", StringComparison.OrdinalIgnoreCase))
+            {
+                variant = NNRainbowVariant.Fur;
+                return true;
+            }
+
+            if (string.Equals(shaderName, "Hidden/lilToonFurCutout", StringComparison.OrdinalIgnoreCase))
+            {
+                variant = NNRainbowVariant.FurCutout;
+                return true;
+            }
+
+            if (string.Equals(shaderName, "Hidden/lilToonFurTwoPass", StringComparison.OrdinalIgnoreCase))
+            {
+                variant = NNRainbowVariant.FurTwoPass;
+                return true;
+            }
+
+            variant = default;
+            return false;
+        }
+
         private static bool ContainsAny(string value, params string[] needles)
         {
             foreach (var n in needles)
@@ -74,6 +107,9 @@ namespace Nekoneko.NNRainbow.Editor
                 case NNRainbowVariant.CutoutOutline: return "Hidden/nekoneko/NN Rainbow/CutoutOutline";
                 case NNRainbowVariant.Transparent: return "Hidden/nekoneko/NN Rainbow/Transparent";
                 case NNRainbowVariant.TransparentOutline: return "Hidden/nekoneko/NN Rainbow/TransparentOutline";
+                case NNRainbowVariant.Fur: return "Hidden/lilToonFur";
+                case NNRainbowVariant.FurCutout: return "Hidden/lilToonFurCutout";
+                case NNRainbowVariant.FurTwoPass: return "Hidden/lilToonFurTwoPass";
                 default: throw new ArgumentOutOfRangeException(nameof(variant), variant, null);
             }
         }
@@ -88,6 +124,12 @@ namespace Nekoneko.NNRainbow.Editor
                 case NNRainbowVariant.Transparent:
                 case NNRainbowVariant.TransparentOutline:
                     return 2;
+                case NNRainbowVariant.Fur:
+                    return 5;
+                case NNRainbowVariant.FurCutout:
+                    return 6;
+                case NNRainbowVariant.FurTwoPass:
+                    return 7;
                 default:
                     return 0;
             }
