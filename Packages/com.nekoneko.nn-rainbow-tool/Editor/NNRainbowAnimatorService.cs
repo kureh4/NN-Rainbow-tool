@@ -46,7 +46,7 @@ namespace Nekoneko.NNRainbow.Editor
                 AddSpeedCommitLayer(fx, target, speed, speedEdit, speedEditOpen);
                 totalBindings += AddRainbowModeLayer(fx, animatorServices, avatarRoot, target, enable, type, speed);
                 totalBindings += AddStrengthLayer(fx, animatorServices, avatarRoot, target, enable, emission);
-                totalBindings += AddFurColorLayer(fx, animatorServices, avatarRoot, target, enable, speed);
+                totalBindings += AddFurColorLayer(fx, animatorServices, avatarRoot, target, enable, type, speed);
                 totalBindings += AddFakeShadowLayer(fx, animatorServices, avatarRoot, target, enable);
             }
 
@@ -198,13 +198,18 @@ namespace Nekoneko.NNRainbow.Editor
             Transform avatarRoot,
             NNRainbowTarget target,
             string enableParameter,
+            string typeParameter,
             string speedParameter)
         {
             if (target.FurSlots.Count == 0) return 0;
 
+            // v1.0.11 の全体色相クリップはそのまま維持する。
+            // 今回は Type=2 (グラデーション) だけを独立させ、Type=3 は従来どおり
+            // 安定している全体色相クリップへフォールバックさせる。
             var off = MakeFurColorOffClip(animatorServices, avatarRoot, target, out var c0);
             var rainbow = MakeFurRainbowClip(animatorServices, avatarRoot, target, out var c1);
-            var maxBindings = Math.Max(c0, c1);
+            var gradient = MakeFurGradientClip(animatorServices, avatarRoot, target, out var c2);
+            var maxBindings = Math.Max(c0, Math.Max(c1, c2));
             if (maxBindings == 0) return 0;
 
             var layer = fx.AddLayer(LayerPriority.Default, $"NNR/{target.Id}/Fur Color");
@@ -212,15 +217,26 @@ namespace Nekoneko.NNRainbow.Editor
             var sm = layer.StateMachine;
 
             var sOff = sm.AddState("Fur Original", off);
-            var sRainbow = sm.AddState("Fur Rainbow", rainbow);
+            var sRainbow = sm.AddState("Fur 全体色相", rainbow);
+            var sGradient = sm.AddState("Fur グラデーション", gradient);
             sOff.WriteDefaultValues = false;
             sRainbow.WriteDefaultValues = false;
+            sGradient.WriteDefaultValues = false;
             sRainbow.Speed = 1f;
             sRainbow.SpeedParameter = speedParameter;
             sm.DefaultState = sOff;
 
-            AddTransition(sOff, sRainbow, CondIf(enableParameter));
+            AddTransition(sOff, sRainbow, CondIf(enableParameter), CondEquals(typeParameter, 1f));
+            AddTransition(sOff, sGradient, CondIf(enableParameter), CondEquals(typeParameter, 2f));
+            AddTransition(sOff, sRainbow, CondIf(enableParameter), CondEquals(typeParameter, 3f));
+
             AddTransition(sRainbow, sOff, CondIfNot(enableParameter));
+            AddTransition(sGradient, sOff, CondIfNot(enableParameter));
+
+            AddTransition(sRainbow, sGradient, CondEquals(typeParameter, 2f));
+            AddTransition(sGradient, sRainbow, CondEquals(typeParameter, 1f));
+            AddTransition(sGradient, sRainbow, CondEquals(typeParameter, 3f));
+
             return maxBindings;
         }
 
@@ -256,6 +272,17 @@ namespace Nekoneko.NNRainbow.Editor
                     AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_Color.b"), color.b);
                     AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_Color.a"), color.a);
                     bindingCount += 4;
+
+                    // グラデーションで触る Fur Rim も、OFF時には必ず元へ戻す。
+                    if (mat.HasProperty("_FurRimColor"))
+                    {
+                        var rim = mat.GetColor("_FurRimColor");
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurRimColor.r"), rim.r);
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurRimColor.g"), rim.g);
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurRimColor.b"), rim.b);
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurRimColor.a"), rim.a);
+                        bindingCount += 4;
+                    }
                 }
             }
 
@@ -303,6 +330,65 @@ namespace Nekoneko.NNRainbow.Editor
                     AddCurve(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_Color.b"), MakeRainbowCurve(brightness, 2));
                     AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_Color.a"), original.a);
                     bindingCount += 4;
+                }
+            }
+
+            var result = VirtualClip.Clone(animatorServices.ControllerContext.CloneContext, native);
+            UnityEngine.Object.DestroyImmediate(native);
+            return result;
+        }
+
+        private static VirtualClip MakeFurGradientClip(
+            AnimatorServicesContext animatorServices,
+            Transform avatarRoot,
+            NNRainbowTarget target,
+            out int bindingCount)
+        {
+            var native = new AnimationClip
+            {
+                name = $"NNR_{target.Id}_Fur_Gradient",
+                frameRate = 60f
+            };
+            bindingCount = 0;
+
+            foreach (var pair in target.FurSlots)
+            {
+                var renderer = pair.Key;
+                if (renderer == null) continue;
+                var materials = renderer.sharedMaterials ?? Array.Empty<Material>();
+                var path = ResolvePath(animatorServices, avatarRoot, renderer);
+
+                foreach (var slot in pair.Value)
+                {
+                    if (slot < 0 || slot >= materials.Length) continue;
+                    var mat = materials[slot];
+                    if (mat == null || !mat.HasProperty("_Color")) continue;
+
+                    // lilToon Fur の既存プロパティだけで作る。
+                    // 本体色と Fur Rim を別色にすることで、シェーダー本来の
+                    // Fur Rim 補間を使って毛の輪郭側へ色が変わるようにする。
+                    var original = mat.GetColor("_Color");
+                    var brightness = Mathf.Clamp(Mathf.Max(original.r, Mathf.Max(original.g, original.b)), 0.35f, 1f);
+
+                    var body = Color.HSVToRGB(0.92f, 0.90f, brightness);
+                    body.a = original.a;
+                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_Color.r"), body.r);
+                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_Color.g"), body.g);
+                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_Color.b"), body.b);
+                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_Color.a"), body.a);
+                    bindingCount += 4;
+
+                    if (mat.HasProperty("_FurRimColor"))
+                    {
+                        var rimBrightness = Mathf.Clamp(Mathf.Max(brightness, 0.70f), 0.35f, 1f);
+                        var rim = Color.HSVToRGB(0.52f, 0.95f, rimBrightness);
+                        rim.a = 1f;
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurRimColor.r"), rim.r);
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurRimColor.g"), rim.g);
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurRimColor.b"), rim.b);
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurRimColor.a"), rim.a);
+                        bindingCount += 4;
+                    }
                 }
             }
 
