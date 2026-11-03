@@ -283,6 +283,16 @@ namespace Nekoneko.NNRainbow.Editor
                         AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurRimColor.a"), rim.a);
                         bindingCount += 4;
                     }
+                    if (mat.HasProperty("_FurRimFresnelPower"))
+                    {
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurRimFresnelPower"), mat.GetFloat("_FurRimFresnelPower"));
+                        bindingCount++;
+                    }
+                    if (mat.HasProperty("_FurRimAntiLight"))
+                    {
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurRimAntiLight"), mat.GetFloat("_FurRimAntiLight"));
+                        bindingCount++;
+                    }
                 }
             }
 
@@ -341,6 +351,16 @@ namespace Nekoneko.NNRainbow.Editor
                         AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurRimColor.a"), rim.a);
                         bindingCount += 4;
                     }
+                    if (mat.HasProperty("_FurRimFresnelPower"))
+                    {
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurRimFresnelPower"), mat.GetFloat("_FurRimFresnelPower"));
+                        bindingCount++;
+                    }
+                    if (mat.HasProperty("_FurRimAntiLight"))
+                    {
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurRimAntiLight"), mat.GetFloat("_FurRimAntiLight"));
+                        bindingCount++;
+                    }
                 }
             }
 
@@ -391,14 +411,27 @@ namespace Nekoneko.NNRainbow.Editor
 
                     if (mat.HasProperty("_FurRimColor"))
                     {
-                        var rimBrightness = Mathf.Clamp(Mathf.Max(brightness, 0.70f), 0.35f, 1f);
-                        var rim = Color.HSVToRGB(0.52f, 0.95f, rimBrightness);
+                        var rimBrightness = Mathf.Clamp(Mathf.Max(brightness, 0.85f), 0.35f, 1f);
+                        var rim = Color.HSVToRGB(0.52f, 1.00f, rimBrightness);
                         rim.a = 1f;
                         AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurRimColor.r"), rim.r);
                         AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurRimColor.g"), rim.g);
                         AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurRimColor.b"), rim.b);
                         AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurRimColor.a"), rim.a);
                         bindingCount += 4;
+                    }
+
+                    // lilToon Fur の Rim は Fresnel Power が高いと輪郭のごく狭い範囲にしか出ない。
+                    // グラデーション時だけ広げて、furLayer による根元→毛先の色差を見えるようにする。
+                    if (mat.HasProperty("_FurRimFresnelPower"))
+                    {
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurRimFresnelPower"), 0.35f);
+                        bindingCount++;
+                    }
+                    if (mat.HasProperty("_FurRimAntiLight"))
+                    {
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurRimAntiLight"), 0f);
+                        bindingCount++;
                     }
                 }
             }
