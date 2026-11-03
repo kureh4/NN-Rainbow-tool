@@ -330,6 +330,17 @@ namespace Nekoneko.NNRainbow.Editor
                     AddCurve(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_Color.b"), MakeRainbowCurve(brightness, 2));
                     AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_Color.a"), original.a);
                     bindingCount += 4;
+
+                    // グラデーションから戻った時に Rim 色を残さない。
+                    if (mat.HasProperty("_FurRimColor"))
+                    {
+                        var rim = mat.GetColor("_FurRimColor");
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurRimColor.r"), rim.r);
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurRimColor.g"), rim.g);
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurRimColor.b"), rim.b);
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurRimColor.a"), rim.a);
+                        bindingCount += 4;
+                    }
                 }
             }
 
