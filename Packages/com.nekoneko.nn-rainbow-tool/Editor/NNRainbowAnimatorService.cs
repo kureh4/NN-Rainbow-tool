@@ -46,7 +46,6 @@ namespace Nekoneko.NNRainbow.Editor
                 AddSpeedCommitLayer(fx, target, speed, speedEdit, speedEditOpen);
                 totalBindings += AddRainbowModeLayer(fx, animatorServices, avatarRoot, target, enable, type, speed);
                 totalBindings += AddStrengthLayer(fx, animatorServices, avatarRoot, target, enable, emission);
-                totalBindings += AddFurColorLayer(fx, animatorServices, avatarRoot, target, enable, type, speed);
                 totalBindings += AddFakeShadowLayer(fx, animatorServices, avatarRoot, target, enable);
             }
 
@@ -192,318 +191,6 @@ namespace Nekoneko.NNRainbow.Editor
             return maxBindings;
         }
 
-        private static int AddFurColorLayer(
-            VirtualAnimatorController fx,
-            AnimatorServicesContext animatorServices,
-            Transform avatarRoot,
-            NNRainbowTarget target,
-            string enableParameter,
-            string typeParameter,
-            string speedParameter)
-        {
-            if (target.FurSlots.Count == 0) return 0;
-
-            var off = MakeFurOriginalClip(animatorServices, avatarRoot, target, out var c0);
-            var global = MakeFurGlobalHueClip(animatorServices, avatarRoot, target, out var c1);
-            var gradient = MakeFurGradientClip(animatorServices, avatarRoot, target, out var c2);
-            var flowing = MakeFurFlowingClip(animatorServices, avatarRoot, target, out var c3);
-            var maxBindings = Math.Max(Math.Max(c0, c1), Math.Max(c2, c3));
-            if (maxBindings == 0) return 0;
-
-            var layer = fx.AddLayer(LayerPriority.Default, $"NNR/{target.Id}/Fur Color");
-            layer.DefaultWeight = 1f;
-            var sm = layer.StateMachine;
-
-            var sOff = sm.AddState("Fur Original", off);
-            var sGlobal = sm.AddState("Fur 全体色相", global);
-            var sGradient = sm.AddState("Fur グラデーション", gradient);
-            var sFlow = sm.AddState("Fur 流れる虹", flowing);
-
-            sOff.WriteDefaultValues = false;
-            sGlobal.WriteDefaultValues = false;
-            sGradient.WriteDefaultValues = false;
-            sFlow.WriteDefaultValues = false;
-
-            sGlobal.Speed = 1f;
-            sGlobal.SpeedParameter = speedParameter;
-            sFlow.Speed = 1f;
-            sFlow.SpeedParameter = speedParameter;
-            sm.DefaultState = sOff;
-
-            AddTransition(sOff, sGlobal, CondIf(enableParameter), CondEquals(typeParameter, 1f));
-            AddTransition(sOff, sGradient, CondIf(enableParameter), CondEquals(typeParameter, 2f));
-            AddTransition(sOff, sFlow, CondIf(enableParameter), CondEquals(typeParameter, 3f));
-
-            AddTransition(sGlobal, sOff, CondIfNot(enableParameter));
-            AddTransition(sGradient, sOff, CondIfNot(enableParameter));
-            AddTransition(sFlow, sOff, CondIfNot(enableParameter));
-
-            AddTransition(sGlobal, sGradient, CondEquals(typeParameter, 2f));
-            AddTransition(sGlobal, sFlow, CondEquals(typeParameter, 3f));
-            AddTransition(sGradient, sGlobal, CondEquals(typeParameter, 1f));
-            AddTransition(sGradient, sFlow, CondEquals(typeParameter, 3f));
-            AddTransition(sFlow, sGlobal, CondEquals(typeParameter, 1f));
-            AddTransition(sFlow, sGradient, CondEquals(typeParameter, 2f));
-
-            return maxBindings;
-        }
-
-        private static VirtualClip MakeFurOriginalClip(
-            AnimatorServicesContext animatorServices,
-            Transform avatarRoot,
-            NNRainbowTarget target,
-            out int bindingCount)
-        {
-            var native = new AnimationClip
-            {
-                name = $"NNR_{target.Id}_Fur_Original",
-                frameRate = 60f
-            };
-            bindingCount = 0;
-
-            foreach (var pair in target.FurSlots)
-            {
-                var renderer = pair.Key;
-                if (renderer == null) continue;
-                var materials = renderer.sharedMaterials ?? Array.Empty<Material>();
-                var path = ResolvePath(animatorServices, avatarRoot, renderer);
-
-                foreach (var slot in pair.Value)
-                {
-                    if (slot < 0 || slot >= materials.Length) continue;
-                    var mat = materials[slot];
-                    if (mat == null || !mat.HasProperty("_Color")) continue;
-
-                    var color = mat.GetColor("_Color");
-                    AddColorConstants(native, path, materials.Length, slot, "_Color", color);
-                    bindingCount += 4;
-
-                    if (mat.HasProperty("_FurRimColor"))
-                    {
-                        AddColorConstants(native, path, materials.Length, slot, "_FurRimColor", mat.GetColor("_FurRimColor"));
-                        bindingCount += 4;
-                    }
-                }
-            }
-
-            var result = VirtualClip.Clone(animatorServices.ControllerContext.CloneContext, native);
-            UnityEngine.Object.DestroyImmediate(native);
-            return result;
-        }
-
-        private static VirtualClip MakeFurGlobalHueClip(
-            AnimatorServicesContext animatorServices,
-            Transform avatarRoot,
-            NNRainbowTarget target,
-            out int bindingCount)
-        {
-            var native = CreateLoopClip($"NNR_{target.Id}_Fur_GlobalHue");
-            bindingCount = 0;
-
-            foreach (var pair in target.FurSlots)
-            {
-                var renderer = pair.Key;
-                if (renderer == null) continue;
-                var materials = renderer.sharedMaterials ?? Array.Empty<Material>();
-                var path = ResolvePath(animatorServices, avatarRoot, renderer);
-
-                foreach (var slot in pair.Value)
-                {
-                    if (slot < 0 || slot >= materials.Length) continue;
-                    var mat = materials[slot];
-                    if (mat == null || !mat.HasProperty("_Color")) continue;
-
-                    var original = mat.GetColor("_Color");
-                    var brightness = FurBrightness(original);
-
-                    AddRainbowColorCurves(native, path, materials.Length, slot, "_Color", brightness, original.a, 0f);
-                    bindingCount += 4;
-
-                    if (mat.HasProperty("_FurRimColor"))
-                    {
-                        var rim = mat.GetColor("_FurRimColor");
-                        AddColorConstants(native, path, materials.Length, slot, "_FurRimColor", rim);
-                        bindingCount += 4;
-                    }
-                }
-            }
-
-            var result = VirtualClip.Clone(animatorServices.ControllerContext.CloneContext, native);
-            UnityEngine.Object.DestroyImmediate(native);
-            return result;
-        }
-
-        private static VirtualClip MakeFurGradientClip(
-            AnimatorServicesContext animatorServices,
-            Transform avatarRoot,
-            NNRainbowTarget target,
-            out int bindingCount)
-        {
-            var native = new AnimationClip
-            {
-                name = $"NNR_{target.Id}_Fur_Gradient",
-                frameRate = 60f
-            };
-            bindingCount = 0;
-
-            foreach (var pair in target.FurSlots)
-            {
-                var renderer = pair.Key;
-                if (renderer == null) continue;
-                var materials = renderer.sharedMaterials ?? Array.Empty<Material>();
-                var path = ResolvePath(animatorServices, avatarRoot, renderer);
-
-                foreach (var slot in pair.Value)
-                {
-                    if (slot < 0 || slot >= materials.Length) continue;
-                    var mat = materials[slot];
-                    if (mat == null || !mat.HasProperty("_Color")) continue;
-
-                    var original = mat.GetColor("_Color");
-                    var brightness = FurBrightness(original);
-                    var baseColor = Color.HSVToRGB(0.92f, 0.90f, brightness);
-                    baseColor.a = original.a;
-                    AddColorConstants(native, path, materials.Length, slot, "_Color", baseColor);
-                    bindingCount += 4;
-
-                    if (mat.HasProperty("_FurRimColor"))
-                    {
-                        var originalRim = mat.GetColor("_FurRimColor");
-                        var rimColor = Color.HSVToRGB(0.52f, 0.95f, Mathf.Max(brightness, 0.70f));
-                        rimColor.a = Mathf.Max(originalRim.a, 1f);
-                        AddColorConstants(native, path, materials.Length, slot, "_FurRimColor", rimColor);
-                        bindingCount += 4;
-                    }
-                }
-            }
-
-            var result = VirtualClip.Clone(animatorServices.ControllerContext.CloneContext, native);
-            UnityEngine.Object.DestroyImmediate(native);
-            return result;
-        }
-
-        private static VirtualClip MakeFurFlowingClip(
-            AnimatorServicesContext animatorServices,
-            Transform avatarRoot,
-            NNRainbowTarget target,
-            out int bindingCount)
-        {
-            var native = CreateLoopClip($"NNR_{target.Id}_Fur_Flowing");
-            bindingCount = 0;
-
-            foreach (var pair in target.FurSlots)
-            {
-                var renderer = pair.Key;
-                if (renderer == null) continue;
-                var materials = renderer.sharedMaterials ?? Array.Empty<Material>();
-                var path = ResolvePath(animatorServices, avatarRoot, renderer);
-
-                foreach (var slot in pair.Value)
-                {
-                    if (slot < 0 || slot >= materials.Length) continue;
-                    var mat = materials[slot];
-                    if (mat == null || !mat.HasProperty("_Color")) continue;
-
-                    var original = mat.GetColor("_Color");
-                    var brightness = FurBrightness(original);
-
-                    AddRainbowColorCurves(native, path, materials.Length, slot, "_Color", brightness, original.a, 0f);
-                    bindingCount += 4;
-
-                    if (mat.HasProperty("_FurRimColor"))
-                    {
-                        var rim = mat.GetColor("_FurRimColor");
-                        var rimBrightness = Mathf.Max(brightness, 0.70f);
-                        AddRainbowColorCurves(native, path, materials.Length, slot, "_FurRimColor", rimBrightness, Mathf.Max(rim.a, 1f), 0.42f);
-                        bindingCount += 4;
-                    }
-                }
-            }
-
-            var result = VirtualClip.Clone(animatorServices.ControllerContext.CloneContext, native);
-            UnityEngine.Object.DestroyImmediate(native);
-            return result;
-        }
-
-        private static AnimationClip CreateLoopClip(string name)
-        {
-            var native = new AnimationClip
-            {
-                name = name,
-                frameRate = 60f
-            };
-            var settings = AnimationUtility.GetAnimationClipSettings(native);
-            settings.loopTime = true;
-            AnimationUtility.SetAnimationClipSettings(native, settings);
-            return native;
-        }
-
-        private static float FurBrightness(Color original)
-        {
-            return Mathf.Clamp(Mathf.Max(original.r, Mathf.Max(original.g, original.b)), 0.35f, 1f);
-        }
-
-        private static void AddColorConstants(
-            AnimationClip clip,
-            string path,
-            int materialCount,
-            int slot,
-            string property,
-            Color color)
-        {
-            AddConstant(clip, path, typeof(Renderer), MaterialProperty(materialCount, slot, property + ".r"), color.r);
-            AddConstant(clip, path, typeof(Renderer), MaterialProperty(materialCount, slot, property + ".g"), color.g);
-            AddConstant(clip, path, typeof(Renderer), MaterialProperty(materialCount, slot, property + ".b"), color.b);
-            AddConstant(clip, path, typeof(Renderer), MaterialProperty(materialCount, slot, property + ".a"), color.a);
-        }
-
-        private static void AddRainbowColorCurves(
-            AnimationClip clip,
-            string path,
-            int materialCount,
-            int slot,
-            string property,
-            float brightness,
-            float alpha,
-            float phase)
-        {
-            AddCurve(clip, path, typeof(Renderer), MaterialProperty(materialCount, slot, property + ".r"), MakeRainbowCurve(brightness, 0, phase));
-            AddCurve(clip, path, typeof(Renderer), MaterialProperty(materialCount, slot, property + ".g"), MakeRainbowCurve(brightness, 1, phase));
-            AddCurve(clip, path, typeof(Renderer), MaterialProperty(materialCount, slot, property + ".b"), MakeRainbowCurve(brightness, 2, phase));
-            AddConstant(clip, path, typeof(Renderer), MaterialProperty(materialCount, slot, property + ".a"), alpha);
-        }
-
-        private static AnimationCurve MakeRainbowCurve(float brightness, int channel, float phase)
-        {
-            var curve = new AnimationCurve();
-            for (var i = 0; i <= 12; i++)
-            {
-                var t = i / 12f;
-                var hue = Mathf.Repeat(t + phase, 1f);
-                var c = Color.HSVToRGB(hue, 1f, brightness);
-                var value = channel == 0 ? c.r : channel == 1 ? c.g : c.b;
-                curve.AddKey(new Keyframe(t, value));
-            }
-
-            for (var i = 0; i < curve.length; i++)
-            {
-                AnimationUtility.SetKeyLeftTangentMode(curve, i, AnimationUtility.TangentMode.Linear);
-                AnimationUtility.SetKeyRightTangentMode(curve, i, AnimationUtility.TangentMode.Linear);
-            }
-
-            curve.preWrapMode = WrapMode.Loop;
-            curve.postWrapMode = WrapMode.Loop;
-            return curve;
-        }
-
-        private static void AddCurve(AnimationClip clip, string path, Type type, string propertyName, AnimationCurve curve)
-        {
-            AnimationUtility.SetEditorCurve(
-                clip,
-                new EditorCurveBinding { path = path, type = type, propertyName = propertyName },
-                curve);
-        }
-
         private static int AddFakeShadowLayer(VirtualAnimatorController fx, AnimatorServicesContext animatorServices, Transform avatarRoot, NNRainbowTarget target, string enableParameter)
         {
             if (target.FakeShadowSlots.Count == 0) return 0;
@@ -595,6 +282,14 @@ namespace Nekoneko.NNRainbow.Editor
                     AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ST.w"), 0f); bindingCount++;
                     AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ScrollRotate.x"), scroll); bindingCount++;
                     AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ScrollRotate.y"), 0f); bindingCount++;
+                    if (target.FurSlots.TryGetValue(renderer, out var furSlots) && furSlots.Contains(slot))
+                    {
+                        var nnrMode = mode == RainbowMode.Off ? 0f :
+                                      mode == RainbowMode.GlobalHue ? 1f :
+                                      mode == RainbowMode.Gradient ? 2f : 3f;
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_NNRMode"), nnrMode); bindingCount++;
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_NNRScroll"), scroll); bindingCount++;
+                    }
                 }
             }
 
@@ -624,6 +319,11 @@ namespace Nekoneko.NNRainbow.Editor
                     if (slot < 0 || slot >= materials.Length || materials[slot] == null) continue;
                     AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Blend"), blend);
                     bindingCount++;
+                    if (target.FurSlots.TryGetValue(renderer, out var furSlots) && furSlots.Contains(slot))
+                    {
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_NNRBlend"), blend);
+                        bindingCount++;
+                    }
                 }
             }
             var result = VirtualClip.Clone(animatorServices.ControllerContext.CloneContext, native);
