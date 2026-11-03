@@ -401,7 +401,8 @@ namespace Nekoneko.NNRainbow.Editor
                     var original = mat.GetColor("_Color");
                     var brightness = Mathf.Clamp(Mathf.Max(original.r, Mathf.Max(original.g, original.b)), 0.35f, 1f);
 
-                    var body = Color.HSVToRGB(0.92f, 0.90f, brightness);
+                    var bodyBrightness = Mathf.Clamp(brightness * 0.65f, 0.35f, 0.70f);
+                    var body = Color.HSVToRGB(0.92f, 0.90f, bodyBrightness);
                     body.a = original.a;
                     AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_Color.r"), body.r);
                     AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_Color.g"), body.g);
@@ -411,7 +412,8 @@ namespace Nekoneko.NNRainbow.Editor
 
                     if (mat.HasProperty("_FurRimColor"))
                     {
-                        var rimBrightness = Mathf.Clamp(Mathf.Max(brightness, 0.85f), 0.35f, 1f);
+                        // Fur Rim is additive, so keep it below full intensity to avoid washing the tips to white.
+                        var rimBrightness = Mathf.Clamp(brightness * 0.65f, 0.55f, 0.72f);
                         var rim = Color.HSVToRGB(0.52f, 1.00f, rimBrightness);
                         rim.a = 1f;
                         AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurRimColor.r"), rim.r);
@@ -421,11 +423,11 @@ namespace Nekoneko.NNRainbow.Editor
                         bindingCount += 4;
                     }
 
-                    // lilToon Fur の Rim は Fresnel Power が高いと輪郭のごく狭い範囲にしか出ない。
-                    // グラデーション時だけ広げて、furLayer による根元→毛先の色差を見えるようにする。
+                    // Fresnel をほぼ無効化し、lilToon 内部の input.furLayer 係数を主役にする。
+                    // _FurRimColor は input.furLayer と乗算されるため、根元では弱く、毛先ほど強くなる。
                     if (mat.HasProperty("_FurRimFresnelPower"))
                     {
-                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurRimFresnelPower"), 0.35f);
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurRimFresnelPower"), 0.01f);
                         bindingCount++;
                     }
                     if (mat.HasProperty("_FurRimAntiLight"))
