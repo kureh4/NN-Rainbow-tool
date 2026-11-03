@@ -14,7 +14,7 @@ namespace Nekoneko.NNRainbow.Editor
             EditorGUILayout.HelpBox(
                 "このNN_Rainbowの親オブジェクトを1つのRainbow対象として自動取得します。\n" +
                 "中に対象を入れる必要はありません。\n" +
-                "通常のlilToon Shaderを維持したまま、NDMFで非破壊に虹色設定を追加します。",
+                "lilToon Shaderを維持したまま、NDMFで非破壊に虹色設定を追加します。",
                 MessageType.Info);
 
             var parent = marker.transform.parent;
@@ -42,6 +42,7 @@ namespace Nekoneko.NNRainbow.Editor
             EditorGUILayout.LabelField("未対応Material Slot", current.UnsupportedMaterials.Count.ToString());
             EditorGUILayout.HelpBox(
                 "対応: 通常lilToonのOpaque / Cutout / Transparent（Outline含む）\n" +
+                "対応: lilToon Fur / FurCutout / FurTwoPass\n" +
                 "未使用のEmission / Emission2ndを虹色レイヤーとして使用します。両方使用済みの場合はそのRendererを安全のためスキップします。",
                 MessageType.None);
         }
