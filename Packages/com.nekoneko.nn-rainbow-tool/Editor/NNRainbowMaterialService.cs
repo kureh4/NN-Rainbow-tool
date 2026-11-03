@@ -44,7 +44,6 @@ namespace Nekoneko.NNRainbow.Editor
                         if (!clones.TryGetValue(original, out var clone))
                         {
                             clone = new Material(original) { name = original.name + "__NNR_STOCK_EMISSION" };
-                            ApplyFurShaderIfNeeded(clone, original, rainbowTexture);
                             PrepareEmission(clone, emissionLayer, rainbowTexture);
                             clones.Add(original, clone);
                         }
@@ -57,40 +56,6 @@ namespace Nekoneko.NNRainbow.Editor
                 }
             }
             return true;
-        }
-
-        private static void ApplyFurShaderIfNeeded(Material clone, Material original, Texture2D rainbowTexture)
-        {
-            if (clone == null || original == null || !NNRainbowShaderVariants.TryGetVariant(original, out var variant)) return;
-
-            string shaderName = null;
-            switch (variant)
-            {
-                case NNRainbowVariant.Fur:
-                    shaderName = "Hidden/nekoneko/NN Rainbow/Fur";
-                    break;
-                case NNRainbowVariant.FurCutout:
-                    shaderName = "Hidden/nekoneko/NN Rainbow/FurCutout";
-                    break;
-                case NNRainbowVariant.FurTwoPass:
-                    shaderName = "Hidden/nekoneko/NN Rainbow/FurTwoPass";
-                    break;
-            }
-
-            if (string.IsNullOrEmpty(shaderName)) return;
-
-            var shader = Shader.Find(shaderName);
-            if (shader == null)
-                throw new InvalidOperationException("NN Rainbow Fur shader was not found: " + shaderName);
-
-            var queue = clone.renderQueue;
-            clone.shader = shader;
-            clone.renderQueue = queue;
-
-            if (clone.HasProperty("_NNRRainbowTex")) clone.SetTexture("_NNRRainbowTex", rainbowTexture);
-            if (clone.HasProperty("_NNRMode")) clone.SetFloat("_NNRMode", 0f);
-            if (clone.HasProperty("_NNRScroll")) clone.SetFloat("_NNRScroll", 0f);
-            if (clone.HasProperty("_NNRBlend")) clone.SetFloat("_NNRBlend", 0f);
         }
 
         private static int ChooseEmissionLayer(Material[] materials)
