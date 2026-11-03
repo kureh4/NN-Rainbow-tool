@@ -24,6 +24,13 @@ jobs:
         with:
           ref: main
 
+      - name: Read package version
+        id: version
+        shell: bash
+        run: |
+          VERSION="$(python -c 'import json; print(json.load(open("Packages/com.nekoneko.nn-rainbow-tool/package.json", encoding="utf-8"))["version"])')"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
       - name: Validate package manifest
         run: python -m json.tool Packages/com.nekoneko.nn-rainbow-tool/package.json > /dev/null
 
@@ -31,8 +38,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
           mkdir -p Releases
-          ZIP="$GITHUB_WORKSPACE/Releases/com.nekoneko.nn-rainbow-tool-1.0.0.zip"
+          ZIP="$GITHUB_WORKSPACE/Releases/com.nekoneko.nn-rainbow-tool-$VERSION.zip"
           rm -f "$ZIP"
           cd Packages/com.nekoneko.nn-rainbow-tool
           zip -qr "$ZIP" .
@@ -42,16 +50,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          SHA="$(sha256sum Releases/com.nekoneko.nn-rainbow-tool-1.0.0.zip | awk '{print $1}')"
-          python - "$SHA" <<'PY'
+          VERSION="${{ steps.version.outputs.version }}"
+          ZIP="Releases/com.nekoneko.nn-rainbow-tool-$VERSION.zip"
+          SHA="$(sha256sum "$ZIP" | awk '{print $1}')"
+          python - "$VERSION" "$SHA" <<'PY'
           import json, sys
-          sha = sys.argv[1]
+          version, sha = sys.argv[1], sys.argv[2]
+          package_id = "com.nekoneko.nn-rainbow-tool"
           for path in ("Website/index.json", "index.json"):
               with open(path, "r", encoding="utf-8") as f:
                   data = json.load(f)
-              data["packages"]["com.nekoneko.nn-rainbow-tool"]["versions"]["1.0.0"]["zipSHA256"] = sha
+              version_data = data["packages"][package_id]["versions"][version]
+              version_data["zipSHA256"] = sha
+              version_data["url"] = f"https://raw.githubusercontent.com/kureh4/NN-Rainbow-tool/main/Releases/{package_id}-{version}.zip"
               with open(path, "w", encoding="utf-8") as f:
-                  json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
+                  json.dump(data, f, ensure_ascii=False, indent=2)
                   f.write("\n")
           PY
 
@@ -59,12 +72,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Releases/com.nekoneko.nn-rainbow-tool-1.0.0.zip Website/index.json index.json
-          git rm -f --ignore-unmatch Releases/jp.nekoneko.nn-rainbow-tool-1.0.0.zip
+          git add "Releases/com.nekoneko.nn-rainbow-tool-$VERSION.zip" Website/index.json index.json
           if git diff --cached --quiet; then
             exit 0
           fi
-          git commit -m "Build VPM package 1.0.0"
+          git commit -m "Build VPM package $VERSION"
           git push
