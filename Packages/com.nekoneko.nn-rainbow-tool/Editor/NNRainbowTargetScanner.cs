@@ -14,6 +14,7 @@ namespace Nekoneko.NNRainbow.Editor
         public readonly List<Renderer> Renderers = new List<Renderer>();
         public readonly List<Material> SupportedMaterials = new List<Material>();
         public readonly Dictionary<Renderer, List<int>> SupportedSlots = new Dictionary<Renderer, List<int>>();
+        public readonly Dictionary<Renderer, List<int>> FurSlots = new Dictionary<Renderer, List<int>>();
         public readonly Dictionary<Renderer, List<int>> FakeShadowSlots = new Dictionary<Renderer, List<int>>();
         public readonly List<(GameObject go, Material material, string shader)> UnsupportedMaterials =
             new List<(GameObject, Material, string)>();
@@ -56,6 +57,7 @@ namespace Nekoneko.NNRainbow.Editor
                     if (renderer == null) continue;
                     var materials = renderer.sharedMaterials ?? new Material[0];
                     var supportedSlots = new List<int>();
+                    var furSlots = new List<int>();
                     var fakeShadowSlots = new List<int>();
 
                     for (var slot = 0; slot < materials.Length; slot++)
@@ -70,6 +72,7 @@ namespace Nekoneko.NNRainbow.Editor
                         else if (IsSupportedLilToon(mat))
                         {
                             supportedSlots.Add(slot);
+                            if (NNRainbowShaderVariants.IsFur(mat)) furSlots.Add(slot);
                             if (!target.SupportedMaterials.Contains(mat)) target.SupportedMaterials.Add(mat);
                         }
                         else
@@ -81,6 +84,8 @@ namespace Nekoneko.NNRainbow.Editor
                         target.Renderers.Add(renderer);
                         if (supportedSlots.Count > 0)
                             target.SupportedSlots[renderer] = supportedSlots;
+                        if (furSlots.Count > 0)
+                            target.FurSlots[renderer] = furSlots;
                         if (fakeShadowSlots.Count > 0)
                             target.FakeShadowSlots[renderer] = fakeShadowSlots;
                     }

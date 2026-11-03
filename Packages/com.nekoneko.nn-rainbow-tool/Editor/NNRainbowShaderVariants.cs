@@ -66,6 +66,14 @@ namespace Nekoneko.NNRainbow.Editor
             }
         }
 
+        public static bool IsFur(Material material)
+        {
+            if (!TryGetVariant(material, out var variant)) return false;
+            return variant == NNRainbowVariant.Fur ||
+                   variant == NNRainbowVariant.FurCutout ||
+                   variant == NNRainbowVariant.FurTwoPass;
+        }
+
         private static bool TryGetFurVariant(string shaderName, out NNRainbowVariant variant)
         {
             if (string.Equals(shaderName, "Hidden/lilToonFur", StringComparison.OrdinalIgnoreCase))
