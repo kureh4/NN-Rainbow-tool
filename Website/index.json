@@ -24,7 +24,7 @@
             "ndmf",
             "rainbow"
           ],
-          "zipSHA256": "",
+          "zipSHA256": "0b1d5ff1344d4be6aaf3b33424602d85f0a544423b7e6032f4199aef34c45838",
           "url": "https://raw.githubusercontent.com/kureh4/NN-Rainbow-tool/main/Releases/com.nekoneko.nn-rainbow-tool-1.0.2.zip",
           "vpmDependencies": {
             "com.vrchat.avatars": ">=3.10.0 <4.0.0",
