@@ -247,7 +247,6 @@ namespace Nekoneko.NNRainbow.Editor
                 foreach (var slot in pair.Value)
                 {
                     if (slot < 0 || slot >= materials.Length) continue;
-                    if (IsCustomFurSlot(target, renderer, slot)) continue;
                     var mat = materials[slot];
                     if (mat == null || !mat.HasProperty("_Color")) continue;
 
@@ -293,7 +292,6 @@ namespace Nekoneko.NNRainbow.Editor
                 foreach (var slot in pair.Value)
                 {
                     if (slot < 0 || slot >= materials.Length) continue;
-                    if (IsCustomFurSlot(target, renderer, slot)) continue;
                     var mat = materials[slot];
                     if (mat == null || !mat.HasProperty("_Color")) continue;
 
@@ -386,7 +384,6 @@ namespace Nekoneko.NNRainbow.Editor
                 foreach (var slot in pair.Value)
                 {
                     if (slot < 0 || slot >= materials.Length) continue;
-                    if (IsCustomFurSlot(target, renderer, slot)) continue;
                     var mat = materials[slot];
                     if (mat == null || !mat.HasProperty("_Invisible")) continue;
 
@@ -435,14 +432,6 @@ namespace Nekoneko.NNRainbow.Editor
                     AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ST.w"), 0f); bindingCount++;
                     AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ScrollRotate.x"), scroll); bindingCount++;
                     AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ScrollRotate.y"), 0f); bindingCount++;
-                    if (IsCustomFurSlot(target, renderer, slot))
-                    {
-                        var furMode = mode == RainbowMode.Off ? 0f :
-                                      mode == RainbowMode.GlobalHue ? 1f :
-                                      mode == RainbowMode.Gradient ? 2f : 3f;
-                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_NNRMode"), furMode); bindingCount++;
-                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_NNRScroll"), scroll); bindingCount++;
-                    }
                 }
             }
 
@@ -472,24 +461,11 @@ namespace Nekoneko.NNRainbow.Editor
                     if (slot < 0 || slot >= materials.Length || materials[slot] == null) continue;
                     AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Blend"), blend);
                     bindingCount++;
-                    if (IsCustomFurSlot(target, renderer, slot))
-                    {
-                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_NNRBlend"), blend);
-                        bindingCount++;
-                    }
                 }
             }
             var result = VirtualClip.Clone(animatorServices.ControllerContext.CloneContext, native);
             UnityEngine.Object.DestroyImmediate(native);
             return result;
-        }
-
-        private static bool IsCustomFurSlot(NNRainbowTarget target, Renderer renderer, int slot)
-        {
-            return target != null &&
-                   renderer != null &&
-                   target.FurCustomSlots.TryGetValue(renderer, out var slots) &&
-                   slots.Contains(slot);
         }
 
         private static string MaterialProperty(int materialCount, int slot, string property)
