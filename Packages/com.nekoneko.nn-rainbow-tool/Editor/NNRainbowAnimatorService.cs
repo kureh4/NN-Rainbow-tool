@@ -46,7 +46,7 @@ namespace Nekoneko.NNRainbow.Editor
                 AddSpeedCommitLayer(fx, target, speed, speedEdit, speedEditOpen);
                 totalBindings += AddRainbowModeLayer(fx, animatorServices, avatarRoot, target, enable, type, speed);
                 totalBindings += AddStrengthLayer(fx, animatorServices, avatarRoot, target, enable, emission);
-                totalBindings += AddFurColorLayer(fx, animatorServices, avatarRoot, target, enable, speed);
+                totalBindings += AddFurColorLayer(fx, animatorServices, avatarRoot, target, enable, type, speed);
                 totalBindings += AddFakeShadowLayer(fx, animatorServices, avatarRoot, target, enable);
             }
 
@@ -198,13 +198,16 @@ namespace Nekoneko.NNRainbow.Editor
             Transform avatarRoot,
             NNRainbowTarget target,
             string enableParameter,
+            string typeParameter,
             string speedParameter)
         {
             if (target.FurSlots.Count == 0) return 0;
 
-            var off = MakeFurColorOffClip(animatorServices, avatarRoot, target, out var c0);
-            var rainbow = MakeFurRainbowClip(animatorServices, avatarRoot, target, out var c1);
-            var maxBindings = Math.Max(c0, c1);
+            var off = MakeFurOriginalClip(animatorServices, avatarRoot, target, out var c0);
+            var global = MakeFurGlobalHueClip(animatorServices, avatarRoot, target, out var c1);
+            var gradient = MakeFurGradientClip(animatorServices, avatarRoot, target, out var c2);
+            var flowing = MakeFurFlowingClip(animatorServices, avatarRoot, target, out var c3);
+            var maxBindings = Math.Max(Math.Max(c0, c1), Math.Max(c2, c3));
             if (maxBindings == 0) return 0;
 
             var layer = fx.AddLayer(LayerPriority.Default, $"NNR/{target.Id}/Fur Color");
@@ -212,19 +215,40 @@ namespace Nekoneko.NNRainbow.Editor
             var sm = layer.StateMachine;
 
             var sOff = sm.AddState("Fur Original", off);
-            var sRainbow = sm.AddState("Fur Rainbow", rainbow);
+            var sGlobal = sm.AddState("Fur 全体色相", global);
+            var sGradient = sm.AddState("Fur グラデーション", gradient);
+            var sFlow = sm.AddState("Fur 流れる虹", flowing);
+
             sOff.WriteDefaultValues = false;
-            sRainbow.WriteDefaultValues = false;
-            sRainbow.Speed = 1f;
-            sRainbow.SpeedParameter = speedParameter;
+            sGlobal.WriteDefaultValues = false;
+            sGradient.WriteDefaultValues = false;
+            sFlow.WriteDefaultValues = false;
+
+            sGlobal.Speed = 1f;
+            sGlobal.SpeedParameter = speedParameter;
+            sFlow.Speed = 1f;
+            sFlow.SpeedParameter = speedParameter;
             sm.DefaultState = sOff;
 
-            AddTransition(sOff, sRainbow, CondIf(enableParameter));
-            AddTransition(sRainbow, sOff, CondIfNot(enableParameter));
+            AddTransition(sOff, sGlobal, CondIf(enableParameter), CondEquals(typeParameter, 1f));
+            AddTransition(sOff, sGradient, CondIf(enableParameter), CondEquals(typeParameter, 2f));
+            AddTransition(sOff, sFlow, CondIf(enableParameter), CondEquals(typeParameter, 3f));
+
+            AddTransition(sGlobal, sOff, CondIfNot(enableParameter));
+            AddTransition(sGradient, sOff, CondIfNot(enableParameter));
+            AddTransition(sFlow, sOff, CondIfNot(enableParameter));
+
+            AddTransition(sGlobal, sGradient, CondEquals(typeParameter, 2f));
+            AddTransition(sGlobal, sFlow, CondEquals(typeParameter, 3f));
+            AddTransition(sGradient, sGlobal, CondEquals(typeParameter, 1f));
+            AddTransition(sGradient, sFlow, CondEquals(typeParameter, 3f));
+            AddTransition(sFlow, sGlobal, CondEquals(typeParameter, 1f));
+            AddTransition(sFlow, sGradient, CondEquals(typeParameter, 2f));
+
             return maxBindings;
         }
 
-        private static VirtualClip MakeFurColorOffClip(
+        private static VirtualClip MakeFurOriginalClip(
             AnimatorServicesContext animatorServices,
             Transform avatarRoot,
             NNRainbowTarget target,
@@ -251,11 +275,14 @@ namespace Nekoneko.NNRainbow.Editor
                     if (mat == null || !mat.HasProperty("_Color")) continue;
 
                     var color = mat.GetColor("_Color");
-                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_Color.r"), color.r);
-                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_Color.g"), color.g);
-                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_Color.b"), color.b);
-                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_Color.a"), color.a);
+                    AddColorConstants(native, path, materials.Length, slot, "_Color", color);
                     bindingCount += 4;
+
+                    if (mat.HasProperty("_FurRimColor"))
+                    {
+                        AddColorConstants(native, path, materials.Length, slot, "_FurRimColor", mat.GetColor("_FurRimColor"));
+                        bindingCount += 4;
+                    }
                 }
             }
 
@@ -264,22 +291,13 @@ namespace Nekoneko.NNRainbow.Editor
             return result;
         }
 
-        private static VirtualClip MakeFurRainbowClip(
+        private static VirtualClip MakeFurGlobalHueClip(
             AnimatorServicesContext animatorServices,
             Transform avatarRoot,
             NNRainbowTarget target,
             out int bindingCount)
         {
-            var native = new AnimationClip
-            {
-                name = $"NNR_{target.Id}_Fur_Rainbow",
-                frameRate = 60f
-            };
-
-            var settings = AnimationUtility.GetAnimationClipSettings(native);
-            settings.loopTime = true;
-            AnimationUtility.SetAnimationClipSettings(native, settings);
-
+            var native = CreateLoopClip($"NNR_{target.Id}_Fur_GlobalHue");
             bindingCount = 0;
 
             foreach (var pair in target.FurSlots)
@@ -296,13 +314,17 @@ namespace Nekoneko.NNRainbow.Editor
                     if (mat == null || !mat.HasProperty("_Color")) continue;
 
                     var original = mat.GetColor("_Color");
-                    var brightness = Mathf.Clamp(Mathf.Max(original.r, Mathf.Max(original.g, original.b)), 0.35f, 1f);
+                    var brightness = FurBrightness(original);
 
-                    AddCurve(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_Color.r"), MakeRainbowCurve(brightness, 0));
-                    AddCurve(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_Color.g"), MakeRainbowCurve(brightness, 1));
-                    AddCurve(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_Color.b"), MakeRainbowCurve(brightness, 2));
-                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_Color.a"), original.a);
+                    AddRainbowColorCurves(native, path, materials.Length, slot, "_Color", brightness, original.a, 0f);
                     bindingCount += 4;
+
+                    if (mat.HasProperty("_FurRimColor"))
+                    {
+                        var rim = mat.GetColor("_FurRimColor");
+                        AddColorConstants(native, path, materials.Length, slot, "_FurRimColor", rim);
+                        bindingCount += 4;
+                    }
                 }
             }
 
@@ -311,13 +333,154 @@ namespace Nekoneko.NNRainbow.Editor
             return result;
         }
 
-        private static AnimationCurve MakeRainbowCurve(float brightness, int channel)
+        private static VirtualClip MakeFurGradientClip(
+            AnimatorServicesContext animatorServices,
+            Transform avatarRoot,
+            NNRainbowTarget target,
+            out int bindingCount)
+        {
+            var native = new AnimationClip
+            {
+                name = $"NNR_{target.Id}_Fur_Gradient",
+                frameRate = 60f
+            };
+            bindingCount = 0;
+
+            foreach (var pair in target.FurSlots)
+            {
+                var renderer = pair.Key;
+                if (renderer == null) continue;
+                var materials = renderer.sharedMaterials ?? Array.Empty<Material>();
+                var path = ResolvePath(animatorServices, avatarRoot, renderer);
+
+                foreach (var slot in pair.Value)
+                {
+                    if (slot < 0 || slot >= materials.Length) continue;
+                    var mat = materials[slot];
+                    if (mat == null || !mat.HasProperty("_Color")) continue;
+
+                    var original = mat.GetColor("_Color");
+                    var brightness = FurBrightness(original);
+                    var baseColor = Color.HSVToRGB(0.92f, 0.90f, brightness);
+                    baseColor.a = original.a;
+                    AddColorConstants(native, path, materials.Length, slot, "_Color", baseColor);
+                    bindingCount += 4;
+
+                    if (mat.HasProperty("_FurRimColor"))
+                    {
+                        var originalRim = mat.GetColor("_FurRimColor");
+                        var rimColor = Color.HSVToRGB(0.52f, 0.95f, Mathf.Max(brightness, 0.70f));
+                        rimColor.a = Mathf.Max(originalRim.a, 1f);
+                        AddColorConstants(native, path, materials.Length, slot, "_FurRimColor", rimColor);
+                        bindingCount += 4;
+                    }
+                }
+            }
+
+            var result = VirtualClip.Clone(animatorServices.ControllerContext.CloneContext, native);
+            UnityEngine.Object.DestroyImmediate(native);
+            return result;
+        }
+
+        private static VirtualClip MakeFurFlowingClip(
+            AnimatorServicesContext animatorServices,
+            Transform avatarRoot,
+            NNRainbowTarget target,
+            out int bindingCount)
+        {
+            var native = CreateLoopClip($"NNR_{target.Id}_Fur_Flowing");
+            bindingCount = 0;
+
+            foreach (var pair in target.FurSlots)
+            {
+                var renderer = pair.Key;
+                if (renderer == null) continue;
+                var materials = renderer.sharedMaterials ?? Array.Empty<Material>();
+                var path = ResolvePath(animatorServices, avatarRoot, renderer);
+
+                foreach (var slot in pair.Value)
+                {
+                    if (slot < 0 || slot >= materials.Length) continue;
+                    var mat = materials[slot];
+                    if (mat == null || !mat.HasProperty("_Color")) continue;
+
+                    var original = mat.GetColor("_Color");
+                    var brightness = FurBrightness(original);
+
+                    AddRainbowColorCurves(native, path, materials.Length, slot, "_Color", brightness, original.a, 0f);
+                    bindingCount += 4;
+
+                    if (mat.HasProperty("_FurRimColor"))
+                    {
+                        var rim = mat.GetColor("_FurRimColor");
+                        var rimBrightness = Mathf.Max(brightness, 0.70f);
+                        AddRainbowColorCurves(native, path, materials.Length, slot, "_FurRimColor", rimBrightness, Mathf.Max(rim.a, 1f), 0.42f);
+                        bindingCount += 4;
+                    }
+                }
+            }
+
+            var result = VirtualClip.Clone(animatorServices.ControllerContext.CloneContext, native);
+            UnityEngine.Object.DestroyImmediate(native);
+            return result;
+        }
+
+        private static AnimationClip CreateLoopClip(string name)
+        {
+            var native = new AnimationClip
+            {
+                name = name,
+                frameRate = 60f
+            };
+            var settings = AnimationUtility.GetAnimationClipSettings(native);
+            settings.loopTime = true;
+            AnimationUtility.SetAnimationClipSettings(native, settings);
+            return native;
+        }
+
+        private static float FurBrightness(Color original)
+        {
+            return Mathf.Clamp(Mathf.Max(original.r, Mathf.Max(original.g, original.b)), 0.35f, 1f);
+        }
+
+        private static void AddColorConstants(
+            AnimationClip clip,
+            string path,
+            int materialCount,
+            int slot,
+            string property,
+            Color color)
+        {
+            AddConstant(clip, path, typeof(Renderer), MaterialProperty(materialCount, slot, property + ".r"), color.r);
+            AddConstant(clip, path, typeof(Renderer), MaterialProperty(materialCount, slot, property + ".g"), color.g);
+            AddConstant(clip, path, typeof(Renderer), MaterialProperty(materialCount, slot, property + ".b"), color.b);
+            AddConstant(clip, path, typeof(Renderer), MaterialProperty(materialCount, slot, property + ".a"), color.a);
+        }
+
+        private static void AddRainbowColorCurves(
+            AnimationClip clip,
+            string path,
+            int materialCount,
+            int slot,
+            string property,
+            float brightness,
+            float alpha,
+            float phase)
+        {
+            AddCurve(clip, path, typeof(Renderer), MaterialProperty(materialCount, slot, property + ".r"), MakeRainbowCurve(brightness, 0, phase));
+            AddCurve(clip, path, typeof(Renderer), MaterialProperty(materialCount, slot, property + ".g"), MakeRainbowCurve(brightness, 1, phase));
+            AddCurve(clip, path, typeof(Renderer), MaterialProperty(materialCount, slot, property + ".b"), MakeRainbowCurve(brightness, 2, phase));
+            AddConstant(clip, path, typeof(Renderer), MaterialProperty(materialCount, slot, property + ".a"), alpha);
+        }
+
+        private static AnimationCurve MakeRainbowCurve(float brightness, int channel, float phase)
         {
             var curve = new AnimationCurve();
-            for (var i = 0; i <= 6; i++)
+            for (var i = 0; i <= 12; i++)
             {
-                var t = i / 6f;
-                var c = Color.HSVToRGB(t, 1f, brightness);
+                var t = i / 12f;
+                var hue = Mathf.Repeat(t + phase, 1f);
+                var c = Color.HSVToRGB(hue, 1f, brightness);
                 var value = channel == 0 ? c.r : channel == 1 ? c.g : c.b;
                 curve.AddKey(new Keyframe(t, value));
             }
