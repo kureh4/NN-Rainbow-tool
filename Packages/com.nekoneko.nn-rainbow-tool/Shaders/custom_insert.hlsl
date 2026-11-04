@@ -12,7 +12,8 @@ void nnrApplyRainbow(inout lilFragData fd)
     if(_NNRMode < 1.5 || _NNRStrength <= 0.0001) return;
 
     float3 nnrPositionOS = lilTransformWStoOS(fd.positionWS);
-    float nnrHue = (nnrPositionOS.x - nnrPositionOS.y) * _NNRScale + _NNROffset;
+    // Opposite diagonal from the previous version: upper-left -> lower-right.
+    float nnrHue = (nnrPositionOS.x + nnrPositionOS.y) * _NNRScale + _NNROffset;
 
     if(_NNRMode > 2.5)
         nnrHue += LIL_TIME * _NNRSpeed;
