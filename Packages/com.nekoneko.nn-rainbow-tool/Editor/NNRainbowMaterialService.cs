@@ -105,16 +105,26 @@ namespace Nekoneko.NNRainbow.Editor
             }
 
             var shaderPath = AssetDatabase.GUIDToAssetPath(shaderGuid);
-            var shader = !string.IsNullOrEmpty(shaderPath)
-                ? AssetDatabase.LoadAllAssetsAtPath(shaderPath).OfType<Shader>().FirstOrDefault()
-                : null;
+            Shader shader = null;
+            if (!string.IsNullOrEmpty(shaderPath))
+            {
+                shader = AssetDatabase.LoadAssetAtPath<Shader>(shaderPath);
+                if (shader == null)
+                    shader = AssetDatabase.LoadAllAssetsAtPath(shaderPath).OfType<Shader>().FirstOrDefault();
+            }
 
             // Name lookup is only a fallback; the package asset GUID is the primary route.
             if (shader == null) shader = Shader.Find(fallbackShaderName);
 
             if (shader == null || !shader.isSupported)
             {
-                Debug.LogWarning("[NN - Rainbow] Spatial Fur shader unavailable; keeping stable fallback. guid=" + shaderGuid + ", path=" + shaderPath + ", name=" + fallbackShaderName);
+                // Do not leave the UV-emission fallback active for Fur.
+                // Type 1 still works through the stable _Color animation; Type 2/3 visibly do nothing,
+                // which makes a missing custom shader diagnosable instead of looking like a one-color "gradient".
+                if (emissionLayer == 1) SetFloatIf(clone, "_UseEmission", 0f);
+                if (emissionLayer == 2) SetFloatIf(clone, "_UseEmission2nd", 0f);
+
+                Debug.LogError("[NN - Rainbow] Spatial Fur shader unavailable. Type 2/3 disabled for this Fur material. guid=" + shaderGuid + ", path=" + shaderPath + ", name=" + fallbackShaderName);
                 return false;
             }
 
@@ -156,6 +166,12 @@ namespace Nekoneko.NNRainbow.Editor
 
             if (clone.HasProperty("_NNRSpatialScale")) clone.SetFloat("_NNRSpatialScale", spatialScale);
             if (clone.HasProperty("_NNRSpatialOffset")) clone.SetFloat("_NNRSpatialOffset", spatialOffset);
+
+            Debug.Log("[NN - Rainbow] Spatial Fur active: renderer=" + renderer.name +
+                      ", material=" + original.name +
+                      ", shader=" + shader.name +
+                      ", scale=" + spatialScale +
+                      ", offset=" + spatialOffset);
 
             // This custom Fur path draws the spatial rainbow itself.
             // Disable only the unused emission slot NN Rainbow prepared, so UV-based emission cannot wash it into one color.
