@@ -314,38 +314,36 @@ namespace Nekoneko.NNRainbow.Editor
                 {
                     var slot = slotPair.Key;
                     var data = slotPair.Value;
-                    if (data == null || data.Frames == null || data.Frames.Length == 0) continue;
+                    if (data == null || data.Atlas == null || data.FrameCount <= 0 || data.VOffsets == null || data.VOffsets.Length == 0)
+                        continue;
                     if (slot < 0 || slot >= materials.Length || materials[slot] == null) continue;
 
                     var suffix = data.MainLayer == 2 ? "2nd" : "3rd";
                     var useProperty = MaterialProperty(materials.Length, slot, $"_UseMain{suffix}Tex");
-                    var textureProperty = MaterialProperty(materials.Length, slot, $"_Main{suffix}Tex");
+                    var stX = MaterialProperty(materials.Length, slot, $"_Main{suffix}Tex_ST.x");
+                    var stY = MaterialProperty(materials.Length, slot, $"_Main{suffix}Tex_ST.y");
+                    var stZ = MaterialProperty(materials.Length, slot, $"_Main{suffix}Tex_ST.z");
+                    var stW = MaterialProperty(materials.Length, slot, $"_Main{suffix}Tex_ST.w");
 
                     AddConstant(native, path, typeof(Renderer), useProperty, mode == FurBakedMode.Off ? 0f : 1f);
                     bindingCount++;
 
+                    if (mode != FurBakedMode.Off)
+                    {
+                        AddConstant(native, path, typeof(Renderer), stX, 1f);
+                        AddConstant(native, path, typeof(Renderer), stY, data.VScale);
+                        AddConstant(native, path, typeof(Renderer), stZ, 0f);
+                        bindingCount += 3;
+                    }
+
                     if (mode == FurBakedMode.Gradient)
                     {
-                        AddObjectReferenceCurve(native, path, typeof(Renderer), textureProperty,
-                            new[]
-                            {
-                                new ObjectReferenceKeyframe { time = 0f, value = data.Frames[0] }
-                            });
+                        AddConstant(native, path, typeof(Renderer), stW, data.VOffsets[0]);
                         bindingCount++;
                     }
                     else if (mode == FurBakedMode.Flowing)
                     {
-                        var keys = new ObjectReferenceKeyframe[data.Frames.Length];
-                        for (var i = 0; i < data.Frames.Length; i++)
-                        {
-                            keys[i] = new ObjectReferenceKeyframe
-                            {
-                                time = (float)i / data.Frames.Length,
-                                value = data.Frames[i]
-                            };
-                        }
-
-                        AddObjectReferenceCurve(native, path, typeof(Renderer), textureProperty, keys);
+                        AddCurve(native, path, typeof(Renderer), stW, MakeStepOffsetCurve(data.VOffsets));
                         bindingCount++;
                     }
                 }
@@ -354,6 +352,27 @@ namespace Nekoneko.NNRainbow.Editor
             var result = VirtualClip.Clone(animatorServices.ControllerContext.CloneContext, native);
             UnityEngine.Object.DestroyImmediate(native);
             return result;
+        }
+
+        private static AnimationCurve MakeStepOffsetCurve(float[] offsets)
+        {
+            var curve = new AnimationCurve();
+            if (offsets == null || offsets.Length == 0) return curve;
+
+            for (var i = 0; i < offsets.Length; i++)
+                curve.AddKey(new Keyframe((float)i / offsets.Length, offsets[i]));
+
+            curve.AddKey(new Keyframe(1f, offsets[0]));
+
+            for (var i = 0; i < curve.length; i++)
+            {
+                AnimationUtility.SetKeyLeftTangentMode(curve, i, AnimationUtility.TangentMode.Constant);
+                AnimationUtility.SetKeyRightTangentMode(curve, i, AnimationUtility.TangentMode.Constant);
+            }
+
+            curve.preWrapMode = WrapMode.Loop;
+            curve.postWrapMode = WrapMode.Loop;
+            return curve;
         }
 
         private static VirtualClip MakeFurColorOffClip(
@@ -693,19 +712,6 @@ namespace Nekoneko.NNRainbow.Editor
         private static void AddConstant(AnimationClip clip, string path, Type type, string propertyName, float value)
         {
             AnimationUtility.SetEditorCurve(clip, new EditorCurveBinding { path = path, type = type, propertyName = propertyName }, AnimationCurve.Constant(0f, 1f / 60f, value));
-        }
-
-        private static void AddObjectReferenceCurve(
-            AnimationClip clip,
-            string path,
-            Type type,
-            string propertyName,
-            ObjectReferenceKeyframe[] keys)
-        {
-            AnimationUtility.SetObjectReferenceCurve(
-                clip,
-                new EditorCurveBinding { path = path, type = type, propertyName = propertyName },
-                keys);
         }
 
         private static AnimatorCondition CondIf(string parameter) => new AnimatorCondition { mode = AnimatorConditionMode.If, parameter = parameter, threshold = 0f };
