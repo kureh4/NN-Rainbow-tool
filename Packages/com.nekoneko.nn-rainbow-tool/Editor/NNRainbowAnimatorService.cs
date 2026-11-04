@@ -537,7 +537,7 @@ namespace Nekoneko.NNRainbow.Editor
                 if (!target.SupportedSlots.TryGetValue(renderer, out var slots) || slots.Count == 0) continue;
 
                 var emissionLayer = target.EmissionLayerByRenderer.TryGetValue(renderer, out var el) ? el : 0;
-                if (emissionLayer == 0) continue;
+                var hasEmissionLayer = emissionLayer != 0;
 
                 var materials = renderer.sharedMaterials ?? Array.Empty<Material>();
                 var path = ResolvePath(animatorServices, avatarRoot, renderer);
@@ -547,25 +547,36 @@ namespace Nekoneko.NNRainbow.Editor
                 var isFlow = mode == RainbowMode.Flowing;
                 var isDiagonal = isGradient || isFlow;
 
-                // The rainbow texture is a horizontal 1D hue strip.
-                // Rotating the emission UV by 45 degrees makes the strip run from upper-left to lower-right.
-                // 1/sqrt(2) tiling gives roughly one hue cycle across that diagonal.
+                // Stock lilToon fallback for normal materials.
                 var tiling = isGlobal ? 0.001f : isDiagonal ? DiagonalGradientTiling : 1f;
                 var scrollX = (isGlobal || isFlow) ? Mathf.Clamp01(speed01) * MaxScrollSpeed : 0f;
                 var rotation = isDiagonal ? DiagonalGradientAngle : 0f;
+
+                // Spatial Fur shader ignores UV layout and uses object-space X-Y instead.
+                var spatialMode = isGradient ? 2f : isFlow ? 3f : 0f;
+                var spatialScroll = isFlow ? Mathf.Clamp01(speed01) * MaxScrollSpeed : 0f;
 
                 foreach (var slot in slots)
                 {
                     if (slot < 0 || slot >= materials.Length || materials[slot] == null) continue;
 
-                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ST.x"), tiling); bindingCount++;
-                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ST.y"), tiling); bindingCount++;
-                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ST.z"), 0f); bindingCount++;
-                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ST.w"), 0f); bindingCount++;
-                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ScrollRotate.x"), scrollX); bindingCount++;
-                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ScrollRotate.y"), 0f); bindingCount++;
-                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ScrollRotate.z"), rotation); bindingCount++;
-                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ScrollRotate.w"), 0f); bindingCount++;
+                    if (hasEmissionLayer)
+                    {
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ST.x"), tiling); bindingCount++;
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ST.y"), tiling); bindingCount++;
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ST.z"), 0f); bindingCount++;
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ST.w"), 0f); bindingCount++;
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ScrollRotate.x"), scrollX); bindingCount++;
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ScrollRotate.y"), 0f); bindingCount++;
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ScrollRotate.z"), rotation); bindingCount++;
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ScrollRotate.w"), 0f); bindingCount++;
+                    }
+
+                    if (IsSpatialFurSlot(target, renderer, slot))
+                    {
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_NNRMode"), spatialMode); bindingCount++;
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_NNRScroll"), spatialScroll); bindingCount++;
+                    }
                 }
             }
 
@@ -584,7 +595,7 @@ namespace Nekoneko.NNRainbow.Editor
                 if (!target.SupportedSlots.TryGetValue(renderer, out var slots) || slots.Count == 0) continue;
 
                 var emissionLayer = target.EmissionLayerByRenderer.TryGetValue(renderer, out var el) ? el : 0;
-                if (emissionLayer == 0) continue;
+                var hasEmissionLayer = emissionLayer != 0;
 
                 var materials = renderer.sharedMaterials ?? Array.Empty<Material>();
                 var path = ResolvePath(animatorServices, avatarRoot, renderer);
@@ -593,13 +604,31 @@ namespace Nekoneko.NNRainbow.Editor
                 foreach (var slot in slots)
                 {
                     if (slot < 0 || slot >= materials.Length || materials[slot] == null) continue;
-                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Blend"), blend);
-                    bindingCount++;
+
+                    if (hasEmissionLayer)
+                    {
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Blend"), blend);
+                        bindingCount++;
+                    }
+
+                    if (IsSpatialFurSlot(target, renderer, slot))
+                    {
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_NNRBlend"), blend);
+                        bindingCount++;
+                    }
                 }
             }
             var result = VirtualClip.Clone(animatorServices.ControllerContext.CloneContext, native);
             UnityEngine.Object.DestroyImmediate(native);
             return result;
+        }
+
+        private static bool IsSpatialFurSlot(NNRainbowTarget target, Renderer renderer, int slot)
+        {
+            return target != null &&
+                   renderer != null &&
+                   target.FurSpatialSlots.TryGetValue(renderer, out var slots) &&
+                   slots.Contains(slot);
         }
 
         private static string MaterialProperty(int materialCount, int slot, string property)
