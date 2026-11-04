@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Unity.Collections;
 using UnityEditor;
 using UnityEngine;
 
@@ -9,10 +10,9 @@ namespace Nekoneko.NNRainbow.Editor
     internal static class NNRainbowMaterialService
     {
         private const string RainbowTextureGuid = "89070c92845f40b5917a66d82036f5ab";
-        private const string SpatialFurShaderGuid = "30fd2be66625487a859efbf5d32646e1";
-        private const string SpatialFurCutoutShaderGuid = "f38d2b4e658641f8bf21133f967c1cc9";
-        private const string SpatialFurTwoPassShaderGuid = "185ce65981d44dbf8a386a3ae172e058";
-        private const float SpatialRainbowSpan = 5f / 6f; // red -> purple across the visible diagonal
+        private const int FurBakeSize = 256;
+        private const int FurFlowFrames = 12;
+        private const float SpatialRainbowSpan = 5f / 6f;
 
         public static bool ApplyBuildClones(nadena.dev.ndmf.BuildContext context, IReadOnlyList<NNRainbowTarget> targets, out string error)
         {
@@ -34,162 +34,397 @@ namespace Nekoneko.NNRainbow.Editor
 
                     var src = renderer.sharedMaterials ?? Array.Empty<Material>();
                     var dst = (Material[])src.Clone();
-                    var sourceMaterials = slots.Where(slot => slot >= 0 && slot < src.Length && src[slot] != null).Select(slot => src[slot]).ToArray();
+                    var furSlots = target.FurSlots.TryGetValue(renderer, out var fs) ? fs : null;
+                    var nonFurMaterials = slots
+                        .Where(slot => slot >= 0 && slot < src.Length && src[slot] != null && (furSlots == null || !furSlots.Contains(slot)))
+                        .Select(slot => src[slot])
+                        .ToArray();
+
                     target.OverlayLayerByRenderer[renderer] = 0;
-                    var emissionLayer = ChooseEmissionLayer(sourceMaterials);
+                    var emissionLayer = ChooseEmissionLayer(nonFurMaterials);
                     target.EmissionLayerByRenderer[renderer] = emissionLayer;
 
-                    var clones = new Dictionary<Material, Material>();
-                    var spatialByOriginal = new Dictionary<Material, bool>();
                     foreach (var slot in slots)
                     {
                         if (slot < 0 || slot >= src.Length) continue;
                         var original = src[slot];
                         if (original == null) continue;
-                        if (!clones.TryGetValue(original, out var clone))
-                        {
-                            clone = new Material(original) { name = original.name + "__NNR_STOCK_EMISSION" };
-                            PrepareEmission(clone, emissionLayer, rainbowTexture);
 
-                            var spatialFur = TryApplySpatialFurShader(clone, original, renderer, emissionLayer, rainbowTexture);
-                            clones.Add(original, clone);
-                            spatialByOriginal[original] = spatialFur;
-                        }
-                        dst[slot] = clone;
-
-                        if (spatialByOriginal.TryGetValue(original, out var isSpatialFur) && isSpatialFur)
+                        var isFur = furSlots != null && furSlots.Contains(slot);
+                        var clone = new Material(original)
                         {
-                            if (!target.FurSpatialSlots.TryGetValue(renderer, out var spatialSlots))
+                            name = original.name + (isFur ? "__NNR_FUR_BAKED" : "__NNR_STOCK_EMISSION")
+                        };
+
+                        if (isFur)
+                        {
+                            if (TryPrepareBakedFur(context, target, renderer, slot, clone, original, out var bakeError))
                             {
-                                spatialSlots = new List<int>();
-                                target.FurSpatialSlots[renderer] = spatialSlots;
+                                Debug.Log("[NN - Rainbow] Baked Fur rainbow active: renderer=" + renderer.name +
+                                          ", material=" + original.name +
+                                          ", slot=" + slot);
                             }
-                            if (!spatialSlots.Contains(slot)) spatialSlots.Add(slot);
+                            else
+                            {
+                                Debug.LogWarning("[NN - Rainbow] Fur gradient/flow disabled for '" + original.name + "': " + bakeError);
+                            }
                         }
+                        else
+                        {
+                            PrepareEmission(clone, emissionLayer, rainbowTexture);
+                        }
+
+                        dst[slot] = clone;
                     }
+
                     renderer.sharedMaterials = dst;
 
-                    if (emissionLayer == 0)
-                        Debug.LogWarning($"[NN - Rainbow] '{target.DisplayName}/{renderer.name}' already uses both Emission slots. Rainbow is skipped for this renderer to preserve the original material.");
+                    if (nonFurMaterials.Length > 0 && emissionLayer == 0)
+                        Debug.LogWarning($"[NN - Rainbow] '{target.DisplayName}/{renderer.name}' already uses both Emission slots. Rainbow is skipped for non-Fur materials on this renderer to preserve the original material.");
                 }
             }
+
             return true;
         }
 
-        private static bool TryApplySpatialFurShader(Material clone, Material original, Renderer renderer, int emissionLayer, Texture2D rainbowTexture)
+        private static bool TryPrepareBakedFur(
+            nadena.dev.ndmf.BuildContext context,
+            NNRainbowTarget target,
+            Renderer renderer,
+            int slot,
+            Material clone,
+            Material original,
+            out string error)
         {
-            if (clone == null || original == null || renderer == null) return false;
-            if (!NNRainbowShaderVariants.TryGetVariant(original, out var variant)) return false;
-            if (variant != NNRainbowVariant.Fur &&
-                variant != NNRainbowVariant.FurCutout &&
-                variant != NNRainbowVariant.FurTwoPass) return false;
-
-            string shaderGuid;
-            string fallbackShaderName;
-            switch (variant)
+            error = null;
+            if (clone == null || original == null || renderer == null)
             {
-                case NNRainbowVariant.Fur:
-                    shaderGuid = SpatialFurShaderGuid;
-                    fallbackShaderName = "Hidden/NNRainbowSpatial/Fur";
-                    break;
-                case NNRainbowVariant.FurCutout:
-                    shaderGuid = SpatialFurCutoutShaderGuid;
-                    fallbackShaderName = "Hidden/NNRainbowSpatial/FurCutout";
-                    break;
-                case NNRainbowVariant.FurTwoPass:
-                    shaderGuid = SpatialFurTwoPassShaderGuid;
-                    fallbackShaderName = "Hidden/NNRainbowSpatial/FurTwoPass";
-                    break;
-                default:
-                    return false;
-            }
-
-            var shaderPath = AssetDatabase.GUIDToAssetPath(shaderGuid);
-            Shader shader = null;
-            if (!string.IsNullOrEmpty(shaderPath))
-            {
-                shader = AssetDatabase.LoadAssetAtPath<Shader>(shaderPath);
-                if (shader == null)
-                    shader = AssetDatabase.LoadAllAssetsAtPath(shaderPath).OfType<Shader>().FirstOrDefault();
-            }
-
-            // Name lookup is only a fallback; the package asset GUID is the primary route.
-            if (shader == null) shader = Shader.Find(fallbackShaderName);
-
-            if (shader == null || !shader.isSupported)
-            {
-                // Do not leave the UV-emission fallback active for Fur.
-                // Type 1 still works through the stable _Color animation; Type 2/3 visibly do nothing,
-                // which makes a missing custom shader diagnosable instead of looking like a one-color "gradient".
-                if (emissionLayer == 1) SetFloatIf(clone, "_UseEmission", 0f);
-                if (emissionLayer == 2) SetFloatIf(clone, "_UseEmission2nd", 0f);
-
-                Debug.LogError("[NN - Rainbow] Spatial Fur shader unavailable. Type 2/3 disabled for this Fur material. guid=" + shaderGuid + ", path=" + shaderPath + ", name=" + fallbackShaderName);
+                error = "material or renderer was null";
                 return false;
             }
 
-            // Preserve the textures/settings that were already assigned on the DD target material.
-            var mainTex = original.HasProperty("_MainTex") ? original.GetTexture("_MainTex") : null;
-            var mainScale = original.HasProperty("_MainTex") ? original.GetTextureScale("_MainTex") : Vector2.one;
-            var mainOffset = original.HasProperty("_MainTex") ? original.GetTextureOffset("_MainTex") : Vector2.zero;
-            var furNoise = original.HasProperty("_FurNoiseMask") ? original.GetTexture("_FurNoiseMask") : null;
-            var furNoiseScale = original.HasProperty("_FurNoiseMask") ? original.GetTextureScale("_FurNoiseMask") : Vector2.one;
-            var furNoiseOffset = original.HasProperty("_FurNoiseMask") ? original.GetTextureOffset("_FurNoiseMask") : Vector2.zero;
-
-            var queue = clone.renderQueue;
-            clone.shader = shader;
-            clone.renderQueue = queue;
-
-            if (clone.HasProperty("_MainTex"))
+            var mainLayer = ChooseMainOverlayLayer(original);
+            if (mainLayer == 0)
             {
-                clone.SetTexture("_MainTex", mainTex);
-                clone.SetTextureScale("_MainTex", mainScale);
-                clone.SetTextureOffset("_MainTex", mainOffset);
-            }
-            if (clone.HasProperty("_FurNoiseMask"))
-            {
-                clone.SetTexture("_FurNoiseMask", furNoise);
-                clone.SetTextureScale("_FurNoiseMask", furNoiseScale);
-                clone.SetTextureOffset("_FurNoiseMask", furNoiseOffset);
+                error = "Main 2nd and Main 3rd are both already in use";
+                return false;
             }
 
-            if (clone.HasProperty("_NNRRainbowTex")) clone.SetTexture("_NNRRainbowTex", rainbowTexture);
-            if (clone.HasProperty("_NNRMode")) clone.SetFloat("_NNRMode", 0f);
-            if (clone.HasProperty("_NNRScroll")) clone.SetFloat("_NNRScroll", 0f);
-            if (clone.HasProperty("_NNRBlend")) clone.SetFloat("_NNRBlend", 0f);
+            var mesh = GetSharedMesh(renderer);
+            if (mesh == null)
+            {
+                error = "mesh not found";
+                return false;
+            }
 
-            var bounds = renderer.localBounds;
-            var diagonalRange = Mathf.Max(0.001f, 2f * (Mathf.Abs(bounds.extents.x) + Mathf.Abs(bounds.extents.y)));
-            var diagonalMin = bounds.center.x - bounds.center.y - bounds.extents.x - bounds.extents.y;
-            var spatialScale = SpatialRainbowSpan / diagonalRange;
-            var spatialOffset = -diagonalMin * spatialScale;
+            if (!TryBakeFurFrames(context, mesh, slot, renderer.name, original.name, out var frames, out error))
+                return false;
 
-            if (clone.HasProperty("_NNRSpatialScale")) clone.SetFloat("_NNRSpatialScale", spatialScale);
-            if (clone.HasProperty("_NNRSpatialOffset")) clone.SetFloat("_NNRSpatialOffset", spatialOffset);
+            PrepareMainOverlay(clone, mainLayer, frames[0]);
 
-            Debug.Log("[NN - Rainbow] Spatial Fur active: renderer=" + renderer.name +
-                      ", material=" + original.name +
-                      ", shader=" + shader.name +
-                      ", scale=" + spatialScale +
-                      ", offset=" + spatialOffset);
+            if (!target.FurBakedSlots.TryGetValue(renderer, out var bySlot))
+            {
+                bySlot = new Dictionary<int, NNRainbowFurBakeData>();
+                target.FurBakedSlots[renderer] = bySlot;
+            }
 
-            // This custom Fur path draws the spatial rainbow itself.
-            // Disable only the unused emission slot NN Rainbow prepared, so UV-based emission cannot wash it into one color.
-            if (emissionLayer == 1) SetFloatIf(clone, "_UseEmission", 0f);
-            if (emissionLayer == 2) SetFloatIf(clone, "_UseEmission2nd", 0f);
+            bySlot[slot] = new NNRainbowFurBakeData
+            {
+                MainLayer = mainLayer,
+                Frames = frames
+            };
 
             return true;
+        }
+
+        private static int ChooseMainOverlayLayer(Material material)
+        {
+            if (material == null) return 0;
+
+            if (material.HasProperty("_UseMain2ndTex") &&
+                material.HasProperty("_Main2ndTex") &&
+                material.GetFloat("_UseMain2ndTex") < 0.5f)
+                return 2;
+
+            if (material.HasProperty("_UseMain3rdTex") &&
+                material.HasProperty("_Main3rdTex") &&
+                material.GetFloat("_UseMain3rdTex") < 0.5f)
+                return 3;
+
+            return 0;
+        }
+
+        private static void PrepareMainOverlay(Material material, int layer, Texture2D texture)
+        {
+            if (material == null || (layer != 2 && layer != 3)) return;
+
+            var suffix = layer == 2 ? "2nd" : "3rd";
+            var use = "_UseMain" + suffix + "Tex";
+            var color = "_Color" + suffix;
+            var tex = "_Main" + suffix + "Tex";
+            var blendMask = "_Main" + suffix + "BlendMask";
+            var blendMode = "_Main" + suffix + "TexBlendMode";
+            var alphaMode = "_Main" + suffix + "TexAlphaMode";
+            var enableLighting = "_Main" + suffix + "EnableLighting";
+            var uvMode = "_Main" + suffix + "Tex_UVMode";
+            var angle = "_Main" + suffix + "TexAngle";
+            var scroll = "_Main" + suffix + "Tex_ScrollRotate";
+            var cull = "_Main" + suffix + "Tex_Cull";
+            var distanceFade = "_Main" + suffix + "DistanceFade";
+
+            SetFloatIf(material, use, 0f);
+            SetColorIf(material, color, Color.white);
+
+            if (material.HasProperty(tex))
+            {
+                material.SetTexture(tex, texture);
+                material.SetTextureScale(tex, Vector2.one);
+                material.SetTextureOffset(tex, Vector2.zero);
+            }
+
+            if (material.HasProperty(blendMask))
+                material.SetTexture(blendMask, Texture2D.whiteTexture);
+
+            SetFloatIf(material, blendMode, 3f); // Multiply: original MainTex * rainbow
+            SetFloatIf(material, alphaMode, 0f);
+            SetFloatIf(material, enableLighting, 1f);
+            SetFloatIf(material, uvMode, 0f);
+            SetFloatIf(material, angle, 0f);
+            SetVectorIf(material, scroll, Vector4.zero);
+            SetFloatIf(material, cull, 0f);
+            SetVectorIf(material, distanceFade, new Vector4(0.1f, 0.01f, 0f, 0f));
+
+            SetFloatIf(material, "_Main" + suffix + "TexIsDecal", 0f);
+            SetFloatIf(material, "_Main" + suffix + "TexIsLeftOnly", 0f);
+            SetFloatIf(material, "_Main" + suffix + "TexIsRightOnly", 0f);
+            SetFloatIf(material, "_Main" + suffix + "TexShouldCopy", 0f);
+            SetFloatIf(material, "_Main" + suffix + "TexShouldFlipMirror", 0f);
+            SetFloatIf(material, "_Main" + suffix + "TexShouldFlipCopy", 0f);
+            SetFloatIf(material, "_Main" + suffix + "TexIsMSDF", 0f);
+        }
+
+        private static bool TryBakeFurFrames(
+            nadena.dev.ndmf.BuildContext context,
+            Mesh mesh,
+            int subMesh,
+            string rendererName,
+            string materialName,
+            out Texture2D[] frames,
+            out string error)
+        {
+            frames = null;
+            error = null;
+
+            if (mesh == null)
+            {
+                error = "mesh was null";
+                return false;
+            }
+
+            try
+            {
+                using (var meshDataArray = MeshUtility.AcquireReadOnlyMeshData(mesh))
+                {
+                    var data = meshDataArray[0];
+                    if (subMesh < 0 || subMesh >= data.subMeshCount)
+                    {
+                        error = "material slot does not have a matching submesh";
+                        return false;
+                    }
+
+                    var vertexCount = data.vertexCount;
+                    if (vertexCount <= 0)
+                    {
+                        error = "mesh has no vertices";
+                        return false;
+                    }
+
+                    var sub = data.GetSubMesh(subMesh);
+                    if (sub.indexCount < 3)
+                    {
+                        error = "submesh has no triangles";
+                        return false;
+                    }
+
+                    using (var vertices = new NativeArray<Vector3>(vertexCount, Allocator.Temp))
+                    using (var uvs = new NativeArray<Vector2>(vertexCount, Allocator.Temp))
+                    using (var indices = new NativeArray<int>(sub.indexCount, Allocator.Temp))
+                    {
+                        data.GetVertices(vertices);
+                        data.GetUVs(0, uvs);
+                        data.GetIndices(indices, subMesh, true);
+
+                        var hueMap = new float[FurBakeSize * FurBakeSize];
+                        var coverage = new bool[hueMap.Length];
+
+                        var minDiagonal = float.PositiveInfinity;
+                        var maxDiagonal = float.NegativeInfinity;
+                        for (var i = 0; i < indices.Length; i++)
+                        {
+                            var vi = indices[i];
+                            if (vi < 0 || vi >= vertexCount) continue;
+                            var d = vertices[vi].x - vertices[vi].y;
+                            if (d < minDiagonal) minDiagonal = d;
+                            if (d > maxDiagonal) maxDiagonal = d;
+                        }
+
+                        var range = Mathf.Max(0.0001f, maxDiagonal - minDiagonal);
+
+                        for (var i = 0; i + 2 < indices.Length; i += 3)
+                        {
+                            var i0 = indices[i];
+                            var i1 = indices[i + 1];
+                            var i2 = indices[i + 2];
+                            if ((uint)i0 >= vertexCount || (uint)i1 >= vertexCount || (uint)i2 >= vertexCount) continue;
+
+                            RasterizeTriangle(
+                                uvs[i0], uvs[i1], uvs[i2],
+                                vertices[i0], vertices[i1], vertices[i2],
+                                minDiagonal, range,
+                                hueMap, coverage);
+                        }
+
+                        if (!coverage.Any(x => x))
+                        {
+                            error = "no UV0 triangle pixels could be baked";
+                            return false;
+                        }
+
+                        frames = new Texture2D[FurFlowFrames];
+                        for (var frame = 0; frame < FurFlowFrames; frame++)
+                        {
+                            var phase = (float)frame / FurFlowFrames;
+                            var colors = new Color32[hueMap.Length];
+
+                            for (var p = 0; p < hueMap.Length; p++)
+                            {
+                                if (!coverage[p])
+                                {
+                                    colors[p] = new Color32(255, 255, 255, 0);
+                                    continue;
+                                }
+
+                                var hue = Mathf.Repeat(hueMap[p] + phase, 1f);
+                                var rgb = Color.HSVToRGB(hue, 1f, 1f);
+                                colors[p] = (Color32)new Color(rgb.r, rgb.g, rgb.b, 1f);
+                            }
+
+                            var tex = new Texture2D(FurBakeSize, FurBakeSize, TextureFormat.RGBA32, false, false)
+                            {
+                                name = $"NNR_Fur_{Sanitize(rendererName)}_{Sanitize(materialName)}_{subMesh}_P{frame:00}",
+                                wrapMode = TextureWrapMode.Clamp,
+                                filterMode = FilterMode.Bilinear,
+                                anisoLevel = 1
+                            };
+                            tex.SetPixels32(colors);
+                            tex.Apply(false, false);
+
+                            context.AssetSaver.SaveAsset(tex);
+                            frames[frame] = tex;
+                        }
+                    }
+                }
+
+                return true;
+            }
+            catch (Exception e)
+            {
+                error = e.GetType().Name + ": " + e.Message;
+                return false;
+            }
+        }
+
+        private static void RasterizeTriangle(
+            Vector2 uv0,
+            Vector2 uv1,
+            Vector2 uv2,
+            Vector3 p0,
+            Vector3 p1,
+            Vector3 p2,
+            float minDiagonal,
+            float diagonalRange,
+            float[] hueMap,
+            bool[] coverage)
+        {
+            // Unwrap the triangle around uv0 so islands crossing 0/1 are still rasterized correctly.
+            uv1.x += Mathf.Round(uv0.x - uv1.x);
+            uv2.x += Mathf.Round(uv0.x - uv2.x);
+            uv1.y += Mathf.Round(uv0.y - uv1.y);
+            uv2.y += Mathf.Round(uv0.y - uv2.y);
+
+            for (var sx = -1; sx <= 1; sx++)
+            for (var sy = -1; sy <= 1; sy++)
+            {
+                var a = uv0 + new Vector2(sx, sy);
+                var b = uv1 + new Vector2(sx, sy);
+                var c = uv2 + new Vector2(sx, sy);
+
+                var minU = Mathf.Min(a.x, Mathf.Min(b.x, c.x));
+                var maxU = Mathf.Max(a.x, Mathf.Max(b.x, c.x));
+                var minV = Mathf.Min(a.y, Mathf.Min(b.y, c.y));
+                var maxV = Mathf.Max(a.y, Mathf.Max(b.y, c.y));
+                if (maxU < 0f || minU > 1f || maxV < 0f || minV > 1f) continue;
+
+                var minX = Mathf.Clamp(Mathf.FloorToInt(minU * FurBakeSize), 0, FurBakeSize - 1);
+                var maxX = Mathf.Clamp(Mathf.CeilToInt(maxU * FurBakeSize), 0, FurBakeSize - 1);
+                var minY = Mathf.Clamp(Mathf.FloorToInt(minV * FurBakeSize), 0, FurBakeSize - 1);
+                var maxY = Mathf.Clamp(Mathf.CeilToInt(maxV * FurBakeSize), 0, FurBakeSize - 1);
+
+                var denom = Cross(b - a, c - a);
+                if (Mathf.Abs(denom) < 1e-8f) continue;
+
+                for (var y = minY; y <= maxY; y++)
+                for (var x = minX; x <= maxX; x++)
+                {
+                    var uv = new Vector2((x + 0.5f) / FurBakeSize, (y + 0.5f) / FurBakeSize);
+                    var w1 = Cross(uv - a, c - a) / denom;
+                    var w2 = Cross(b - a, uv - a) / denom;
+                    var w0 = 1f - w1 - w2;
+
+                    if (w0 < -0.001f || w1 < -0.001f || w2 < -0.001f) continue;
+
+                    var position = p0 * w0 + p1 * w1 + p2 * w2;
+                    var normalized = Mathf.Clamp01((position.x - position.y - minDiagonal) / diagonalRange);
+                    var hue = normalized * SpatialRainbowSpan;
+
+                    var index = y * FurBakeSize + x;
+                    hueMap[index] = hue;
+                    coverage[index] = true;
+                }
+            }
+        }
+
+        private static float Cross(Vector2 a, Vector2 b) => a.x * b.y - a.y * b.x;
+
+        private static Mesh GetSharedMesh(Renderer renderer)
+        {
+            if (renderer is SkinnedMeshRenderer skinned) return skinned.sharedMesh;
+            if (renderer is MeshRenderer meshRenderer)
+            {
+                var filter = meshRenderer.GetComponent<MeshFilter>();
+                return filter != null ? filter.sharedMesh : null;
+            }
+            return null;
+        }
+
+        private static string Sanitize(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return "Unnamed";
+            foreach (var c in System.IO.Path.GetInvalidFileNameChars())
+                value = value.Replace(c, '_');
+            return value.Replace('/', '_').Replace('\\', '_');
         }
 
         private static int ChooseEmissionLayer(Material[] materials)
         {
-            if (materials.Length == 0) return 0;
+            if (materials == null || materials.Length == 0) return 0;
             if (materials.All(m => IsUnusedToggle(m, "_UseEmission"))) return 1;
             if (materials.All(m => IsUnusedToggle(m, "_UseEmission2nd"))) return 2;
             return 0;
         }
 
-        private static bool IsUnusedToggle(Material material, string property) => material != null && material.HasProperty(property) && material.GetFloat(property) < 0.5f;
+        private static bool IsUnusedToggle(Material material, string property) =>
+            material != null && material.HasProperty(property) && material.GetFloat(property) < 0.5f;
 
         private static void PrepareEmission(Material m, int layer, Texture2D rainbow)
         {
@@ -221,8 +456,19 @@ namespace Nekoneko.NNRainbow.Editor
             SetVectorIf(m, scroll, Vector4.zero);
         }
 
-        private static void SetFloatIf(Material m, string property, float value) { if (m.HasProperty(property)) m.SetFloat(property, value); }
-        private static void SetColorIf(Material m, string property, Color value) { if (m.HasProperty(property)) m.SetColor(property, value); }
-        private static void SetVectorIf(Material m, string property, Vector4 value) { if (m.HasProperty(property)) m.SetVector(property, value); }
+        private static void SetFloatIf(Material m, string property, float value)
+        {
+            if (m.HasProperty(property)) m.SetFloat(property, value);
+        }
+
+        private static void SetColorIf(Material m, string property, Color value)
+        {
+            if (m.HasProperty(property)) m.SetColor(property, value);
+        }
+
+        private static void SetVectorIf(Material m, string property, Vector4 value)
+        {
+            if (m.HasProperty(property)) m.SetVector(property, value);
+        }
     }
 }
