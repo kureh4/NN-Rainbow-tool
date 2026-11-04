@@ -49,7 +49,7 @@ namespace Nekoneko.NNRainbow.Editor
                 totalBindings += AddRainbowModeLayer(fx, animatorServices, avatarRoot, target, enable, type, speed);
                 totalBindings += AddStrengthLayer(fx, animatorServices, avatarRoot, target, enable, emission);
                 totalBindings += AddFurColorLayer(fx, animatorServices, avatarRoot, target, enable, type, speed);
-                totalBindings += AddFurBakedRainbowLayer(fx, animatorServices, avatarRoot, target, enable, type, speed);
+                totalBindings += AddFurUvRainbowLayer(fx, animatorServices, avatarRoot, target, enable, type, speed);
                 totalBindings += AddFakeShadowLayer(fx, animatorServices, avatarRoot, target, enable);
             }
 
@@ -208,7 +208,7 @@ namespace Nekoneko.NNRainbow.Editor
 
             // Type=1 は従来どおり Fur を残した全体色相。
             // Type=2 / Type=3 は Fur を消さず、別レイヤーで stock lilToon の Main 2nd/3rd に
-            // ビルド時生成した斜め虹アトラスを Multiply 合成する。
+            // 追加UVチャンネルから読んだ虹テクスチャを Multiply 合成する。
             var original = MakeFurColorOffClip(animatorServices, avatarRoot, target, out var c0);
             var rainbow = MakeFurRainbowClip(animatorServices, avatarRoot, target, out var c1);
             var maxBindings = Math.Max(c0, c1);
@@ -235,7 +235,7 @@ namespace Nekoneko.NNRainbow.Editor
             return maxBindings;
         }
 
-        private static int AddFurBakedRainbowLayer(
+        private static int AddFurUvRainbowLayer(
             VirtualAnimatorController fx,
             AnimatorServicesContext animatorServices,
             Transform avatarRoot,
@@ -244,15 +244,15 @@ namespace Nekoneko.NNRainbow.Editor
             string typeParameter,
             string speedParameter)
         {
-            if (target.FurBakedSlots.Count == 0) return 0;
+            if (target.FurUvSlots.Count == 0) return 0;
 
-            var off = MakeFurBakedClip(animatorServices, avatarRoot, target, FurBakedMode.Off, out var c0);
-            var gradient = MakeFurBakedClip(animatorServices, avatarRoot, target, FurBakedMode.Gradient, out var c1);
-            var flow = MakeFurBakedClip(animatorServices, avatarRoot, target, FurBakedMode.Flowing, out var c2);
+            var off = MakeFurUvClip(animatorServices, avatarRoot, target, FurUvMode.Off, out var c0);
+            var gradient = MakeFurUvClip(animatorServices, avatarRoot, target, FurUvMode.Gradient, out var c1);
+            var flow = MakeFurUvClip(animatorServices, avatarRoot, target, FurUvMode.Flowing, out var c2);
             var maxBindings = Math.Max(c0, Math.Max(c1, c2));
             if (maxBindings == 0) return 0;
 
-            var layer = fx.AddLayer(LayerPriority.Default, $"NNR/{target.Id}/Fur Baked Rainbow");
+            var layer = fx.AddLayer(LayerPriority.Default, $"NNR/{target.Id}/Fur UV Rainbow");
             layer.DefaultWeight = 1f;
             var sm = layer.StateMachine;
 
@@ -280,20 +280,20 @@ namespace Nekoneko.NNRainbow.Editor
             return maxBindings;
         }
 
-        private static VirtualClip MakeFurBakedClip(
+        private static VirtualClip MakeFurUvClip(
             AnimatorServicesContext animatorServices,
             Transform avatarRoot,
             NNRainbowTarget target,
-            FurBakedMode mode,
+            FurUvMode mode,
             out int bindingCount)
         {
             var native = new AnimationClip
             {
-                name = $"NNR_{target.Id}_FurBaked_{mode}",
-                frameRate = 12f
+                name = $"NNR_{target.Id}_FurUv_{mode}",
+                frameRate = 60f
             };
 
-            if (mode == FurBakedMode.Flowing)
+            if (mode == FurUvMode.Flowing)
             {
                 var settings = AnimationUtility.GetAnimationClipSettings(native);
                 settings.loopTime = true;
@@ -302,7 +302,7 @@ namespace Nekoneko.NNRainbow.Editor
 
             bindingCount = 0;
 
-            foreach (var rendererPair in target.FurBakedSlots)
+            foreach (var rendererPair in target.FurUvSlots)
             {
                 var renderer = rendererPair.Key;
                 if (renderer == null) continue;
@@ -314,8 +314,7 @@ namespace Nekoneko.NNRainbow.Editor
                 {
                     var slot = slotPair.Key;
                     var data = slotPair.Value;
-                    if (data == null || data.Atlas == null || data.FrameCount <= 0 || data.VOffsets == null || data.VOffsets.Length == 0)
-                        continue;
+                    if (data == null) continue;
                     if (slot < 0 || slot >= materials.Length || materials[slot] == null) continue;
 
                     var suffix = data.MainLayer == 2 ? "2nd" : "3rd";
@@ -325,25 +324,25 @@ namespace Nekoneko.NNRainbow.Editor
                     var stZ = MaterialProperty(materials.Length, slot, $"_Main{suffix}Tex_ST.z");
                     var stW = MaterialProperty(materials.Length, slot, $"_Main{suffix}Tex_ST.w");
 
-                    AddConstant(native, path, typeof(Renderer), useProperty, mode == FurBakedMode.Off ? 0f : 1f);
+                    AddConstant(native, path, typeof(Renderer), useProperty, mode == FurUvMode.Off ? 0f : 1f);
                     bindingCount++;
 
-                    if (mode != FurBakedMode.Off)
+                    if (mode != FurUvMode.Off)
                     {
                         AddConstant(native, path, typeof(Renderer), stX, 1f);
-                        AddConstant(native, path, typeof(Renderer), stY, data.VScale);
-                        AddConstant(native, path, typeof(Renderer), stZ, 0f);
+                        AddConstant(native, path, typeof(Renderer), stY, 1f);
+                        AddConstant(native, path, typeof(Renderer), stW, 0f);
                         bindingCount += 3;
                     }
 
-                    if (mode == FurBakedMode.Gradient)
+                    if (mode == FurUvMode.Gradient)
                     {
-                        AddConstant(native, path, typeof(Renderer), stW, data.VOffsets[0]);
+                        AddConstant(native, path, typeof(Renderer), stZ, 0f);
                         bindingCount++;
                     }
-                    else if (mode == FurBakedMode.Flowing)
+                    else if (mode == FurUvMode.Flowing)
                     {
-                        AddCurve(native, path, typeof(Renderer), stW, MakeStepOffsetCurve(data.VOffsets));
+                        AddCurve(native, path, typeof(Renderer), stZ, MakeFlowOffsetCurve());
                         bindingCount++;
                     }
                 }
@@ -354,22 +353,9 @@ namespace Nekoneko.NNRainbow.Editor
             return result;
         }
 
-        private static AnimationCurve MakeStepOffsetCurve(float[] offsets)
+        private static AnimationCurve MakeFlowOffsetCurve()
         {
-            var curve = new AnimationCurve();
-            if (offsets == null || offsets.Length == 0) return curve;
-
-            for (var i = 0; i < offsets.Length; i++)
-                curve.AddKey(new Keyframe((float)i / offsets.Length, offsets[i]));
-
-            curve.AddKey(new Keyframe(1f, offsets[0]));
-
-            for (var i = 0; i < curve.length; i++)
-            {
-                AnimationUtility.SetKeyLeftTangentMode(curve, i, AnimationUtility.TangentMode.Constant);
-                AnimationUtility.SetKeyRightTangentMode(curve, i, AnimationUtility.TangentMode.Constant);
-            }
-
+            var curve = AnimationCurve.Linear(0f, 0f, 1f, 1f);
             curve.preWrapMode = WrapMode.Loop;
             curve.postWrapMode = WrapMode.Loop;
             return curve;
@@ -730,6 +716,6 @@ namespace Nekoneko.NNRainbow.Editor
         }
 
         private enum RainbowMode { Off, GlobalHue, Gradient, Flowing }
-        private enum FurBakedMode { Off, Gradient, Flowing }
+        private enum FurUvMode { Off, Gradient, Flowing }
     }
 }
