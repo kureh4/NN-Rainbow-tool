@@ -6,7 +6,7 @@ void lilNNRainbowSpatial(inout lilFragData fd)
     // Fur forward pass always carries positionWS.
     // Convert it back to the renderer's local/object space so the rainbow stays attached
     // to the avatar and does not depend on UV layout or world movement.
-    float3 positionOS = mul(unity_WorldToObject, float4(fd.positionWS, 1.0)).xyz;
+    float3 positionOS = lilTransformWStoOS(fd.positionWS);
 
     // Upper-left -> lower-right diagonal.
     float t = (positionOS.x - positionOS.y) * _NNRSpatialScale + _NNRSpatialOffset;
