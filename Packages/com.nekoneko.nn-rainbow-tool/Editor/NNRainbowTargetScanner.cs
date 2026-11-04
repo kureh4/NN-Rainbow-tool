@@ -15,12 +15,22 @@ namespace Nekoneko.NNRainbow.Editor
         public readonly List<Material> SupportedMaterials = new List<Material>();
         public readonly Dictionary<Renderer, List<int>> SupportedSlots = new Dictionary<Renderer, List<int>>();
         public readonly Dictionary<Renderer, List<int>> FurSlots = new Dictionary<Renderer, List<int>>();
-        public readonly Dictionary<Renderer, List<int>> FurSpatialSlots = new Dictionary<Renderer, List<int>>();
+        public readonly Dictionary<Renderer, Dictionary<int, NNRainbowFurBakeData>> FurBakedSlots =
+            new Dictionary<Renderer, Dictionary<int, NNRainbowFurBakeData>>();
         public readonly Dictionary<Renderer, List<int>> FakeShadowSlots = new Dictionary<Renderer, List<int>>();
         public readonly List<(GameObject go, Material material, string shader)> UnsupportedMaterials =
             new List<(GameObject, Material, string)>();
         public readonly Dictionary<Renderer, int> OverlayLayerByRenderer = new Dictionary<Renderer, int>();
         public readonly Dictionary<Renderer, int> EmissionLayerByRenderer = new Dictionary<Renderer, int>();
+    }
+
+    internal sealed class NNRainbowFurBakeData
+    {
+        public int MainLayer;
+        public Texture2D Atlas;
+        public int FrameCount;
+        public float VScale;
+        public float[] VOffsets;
     }
 
     internal static class NNRainbowTargetScanner
