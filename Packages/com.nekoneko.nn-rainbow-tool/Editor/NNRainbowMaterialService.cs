@@ -119,10 +119,15 @@ namespace Nekoneko.NNRainbow.Editor
                 return false;
             }
 
+            var rendererToTarget = target.Root != null
+                ? target.Root.worldToLocalMatrix * renderer.transform.localToWorldMatrix
+                : Matrix4x4.identity;
+
             if (!TryBakeFurAtlas(
                     context,
                     mesh,
                     slot,
+                    rendererToTarget,
                     renderer.name,
                     original.name,
                     out var atlas,
@@ -222,6 +227,7 @@ namespace Nekoneko.NNRainbow.Editor
             nadena.dev.ndmf.BuildContext context,
             Mesh mesh,
             int subMesh,
+            Matrix4x4 rendererToTarget,
             string rendererName,
             string materialName,
             out Texture2D atlas,
@@ -275,6 +281,10 @@ namespace Nekoneko.NNRainbow.Editor
                         data.GetUVs(0, uvs);
                         data.GetIndices(indices, subMesh, true);
 
+                        var positions = new Vector3[vertexCount];
+                        for (var i = 0; i < vertexCount; i++)
+                            positions[i] = rendererToTarget.MultiplyPoint3x4(vertices[i]);
+
                         var hueMap = new float[FurBakeSize * FurBakeSize];
                         var coverage = new bool[hueMap.Length];
 
@@ -284,7 +294,7 @@ namespace Nekoneko.NNRainbow.Editor
                         {
                             var vi = indices[i];
                             if (vi < 0 || vi >= vertexCount) continue;
-                            var d = vertices[vi].x - vertices[vi].y;
+                            var d = positions[vi].x - positions[vi].y;
                             if (d < minDiagonal) minDiagonal = d;
                             if (d > maxDiagonal) maxDiagonal = d;
                         }
@@ -300,7 +310,7 @@ namespace Nekoneko.NNRainbow.Editor
 
                             RasterizeTriangle(
                                 uvs[i0], uvs[i1], uvs[i2],
-                                vertices[i0], vertices[i1], vertices[i2],
+                                positions[i0], positions[i1], positions[i2],
                                 minDiagonal, range,
                                 hueMap, coverage);
                         }
