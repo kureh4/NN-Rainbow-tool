@@ -205,12 +205,12 @@ namespace Nekoneko.NNRainbow.Editor
         {
             if (target.FurSlots.Count == 0) return 0;
 
-            // 全体色相(Type=1)だけは、v1.0.11以降で安定しているFurの_Colorアニメーションを維持する。
-            // グラデーション(Type=2) / 流れる虹(Type=3)ではFur本体色を元のままにし、
-            // 共通のEmission虹テクスチャだけで斜めパターンを表示する。
+            // Type=1 は従来どおり Fur を残して全体色相。
+            // Type=2 / Type=3 は Fur の長さとレイヤー数を 0 にして見た目上 Fur をオフにする。
             var original = MakeFurColorOffClip(animatorServices, avatarRoot, target, out var c0);
             var rainbow = MakeFurRainbowClip(animatorServices, avatarRoot, target, out var c1);
-            var maxBindings = Math.Max(c0, c1);
+            var hidden = MakeFurHiddenClip(animatorServices, avatarRoot, target, out var c2);
+            var maxBindings = Math.Max(c0, Math.Max(c1, c2));
             if (maxBindings == 0) return 0;
 
             var layer = fx.AddLayer(LayerPriority.Default, $"NNR/{target.Id}/Fur Color");
@@ -219,17 +219,24 @@ namespace Nekoneko.NNRainbow.Editor
 
             var sOriginal = sm.AddState("Fur Original", original);
             var sRainbow = sm.AddState("Fur 全体色相", rainbow);
+            var sHidden = sm.AddState("Fur OFF for Rainbow", hidden);
             sOriginal.WriteDefaultValues = false;
             sRainbow.WriteDefaultValues = false;
+            sHidden.WriteDefaultValues = false;
             sRainbow.Speed = 1f;
             sRainbow.SpeedParameter = speedParameter;
             sm.DefaultState = sOriginal;
 
             AddTransition(sOriginal, sRainbow, CondIf(enableParameter), CondEquals(typeParameter, 1f));
+            AddTransition(sOriginal, sHidden, CondIf(enableParameter), CondEquals(typeParameter, 2f));
+            AddTransition(sOriginal, sHidden, CondIf(enableParameter), CondEquals(typeParameter, 3f));
 
             AddTransition(sRainbow, sOriginal, CondIfNot(enableParameter));
-            AddTransition(sRainbow, sOriginal, CondEquals(typeParameter, 2f));
-            AddTransition(sRainbow, sOriginal, CondEquals(typeParameter, 3f));
+            AddTransition(sRainbow, sHidden, CondEquals(typeParameter, 2f));
+            AddTransition(sRainbow, sHidden, CondEquals(typeParameter, 3f));
+
+            AddTransition(sHidden, sOriginal, CondIfNot(enableParameter));
+            AddTransition(sHidden, sRainbow, CondEquals(typeParameter, 1f));
 
             return maxBindings;
         }
@@ -285,6 +292,16 @@ namespace Nekoneko.NNRainbow.Editor
                     if (mat.HasProperty("_FurRimAntiLight"))
                     {
                         AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurRimAntiLight"), mat.GetFloat("_FurRimAntiLight"));
+                        bindingCount++;
+                    }
+                    if (mat.HasProperty("_FurVector"))
+                    {
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurVector.w"), mat.GetVector("_FurVector").w);
+                        bindingCount++;
+                    }
+                    if (mat.HasProperty("_FurLayerNum"))
+                    {
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurLayerNum"), mat.GetFloat("_FurLayerNum"));
                         bindingCount++;
                     }
                 }
@@ -353,6 +370,62 @@ namespace Nekoneko.NNRainbow.Editor
                     if (mat.HasProperty("_FurRimAntiLight"))
                     {
                         AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurRimAntiLight"), mat.GetFloat("_FurRimAntiLight"));
+                        bindingCount++;
+                    }
+                    if (mat.HasProperty("_FurVector"))
+                    {
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurVector.w"), mat.GetVector("_FurVector").w);
+                        bindingCount++;
+                    }
+                    if (mat.HasProperty("_FurLayerNum"))
+                    {
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurLayerNum"), mat.GetFloat("_FurLayerNum"));
+                        bindingCount++;
+                    }
+                }
+            }
+
+            var result = VirtualClip.Clone(animatorServices.ControllerContext.CloneContext, native);
+            UnityEngine.Object.DestroyImmediate(native);
+            return result;
+        }
+
+        private static VirtualClip MakeFurHiddenClip(
+            AnimatorServicesContext animatorServices,
+            Transform avatarRoot,
+            NNRainbowTarget target,
+            out int bindingCount)
+        {
+            var native = new AnimationClip
+            {
+                name = $"NNR_{target.Id}_Fur_Hidden",
+                frameRate = 60f
+            };
+            bindingCount = 0;
+
+            foreach (var pair in target.FurSlots)
+            {
+                var renderer = pair.Key;
+                if (renderer == null) continue;
+                var materials = renderer.sharedMaterials ?? Array.Empty<Material>();
+                var path = ResolvePath(animatorServices, avatarRoot, renderer);
+
+                foreach (var slot in pair.Value)
+                {
+                    if (slot < 0 || slot >= materials.Length) continue;
+                    var mat = materials[slot];
+                    if (mat == null) continue;
+
+                    // Keep the base material color/settings intact and only collapse the Fur geometry.
+                    // _FurLayerNum=0 reduces generated layers; _FurVector.w=0 removes the visible fur length.
+                    if (mat.HasProperty("_FurVector"))
+                    {
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurVector.w"), 0f);
+                        bindingCount++;
+                    }
+                    if (mat.HasProperty("_FurLayerNum"))
+                    {
+                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurLayerNum"), 0f);
                         bindingCount++;
                     }
                 }
