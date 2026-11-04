@@ -129,7 +129,9 @@ namespace Nekoneko.NNRainbow.Editor
             uvChannel = 0;
             error = null;
 
-            var sourceMesh = GetSharedMesh(renderer);
+            try
+            {
+                var sourceMesh = GetSharedMesh(renderer);
             if (sourceMesh == null)
             {
                 error = "mesh not found";
@@ -199,9 +201,16 @@ namespace Nekoneko.NNRainbow.Editor
             clone.name = sourceMesh.name + "__NNR_RainbowUV";
             clone.SetUVs(uvChannel, rainbowUv);
             context.AssetSaver.SaveAsset(clone);
-            SetSharedMesh(renderer, clone);
+                SetSharedMesh(renderer, clone);
 
-            return true;
+                return true;
+            }
+            catch (Exception e)
+            {
+                uvChannel = 0;
+                error = e.GetType().Name + ": " + e.Message;
+                return false;
+            }
         }
 
         private static int FindFreeUvChannel(Mesh mesh)
