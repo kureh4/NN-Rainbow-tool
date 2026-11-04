@@ -49,8 +49,7 @@ namespace Nekoneko.NNRainbow.Editor
                 totalBindings += AddRainbowModeLayer(fx, animatorServices, avatarRoot, target, enable, type, speed);
                 totalBindings += AddStrengthLayer(fx, animatorServices, avatarRoot, target, enable, emission);
                 totalBindings += AddFurColorLayer(fx, animatorServices, avatarRoot, target, enable, type, speed);
-                totalBindings += AddFurCustomRainbowLayer(fx, animatorServices, avatarRoot, target, enable, type, speed);
-                totalBindings += AddFurCustomGlowLayer(fx, animatorServices, avatarRoot, target, enable, emission);
+                totalBindings += AddFurMaterialSwapLayer(fx, animatorServices, avatarRoot, target, enable, type, speed, emission);
                 totalBindings += AddFakeShadowLayer(fx, animatorServices, avatarRoot, target, enable);
             }
 
@@ -208,7 +207,7 @@ namespace Nekoneko.NNRainbow.Editor
             if (target.FurSlots.Count == 0) return 0;
 
             // Type=1 は従来どおり Fur の _Color を動かす安定処理。
-            // Type=2 / Type=3 は lilToon公式カスタムShader側で処理するため、
+            // Type=2 / Type=3 は別レイヤーのMaterial Swapで処理するため、
             // このレイヤーではFur本体色を元の値へ戻す。
             var original = MakeFurColorOffClip(animatorServices, avatarRoot, target, out var c0);
             var rainbow = MakeFurRainbowClip(animatorServices, avatarRoot, target, out var c1);
@@ -236,171 +235,226 @@ namespace Nekoneko.NNRainbow.Editor
             return maxBindings;
         }
 
-        private static int AddFurCustomRainbowLayer(
+        private static int AddFurMaterialSwapLayer(
             VirtualAnimatorController fx,
             AnimatorServicesContext animatorServices,
             Transform avatarRoot,
             NNRainbowTarget target,
             string enableParameter,
             string typeParameter,
-            string speedParameter)
-        {
-            if (target.FurCustomSlots.Count == 0) return 0;
-
-            var off = MakeFurCustomModeClip(
-                animatorServices, avatarRoot, target, RainbowMode.Off, 0f, out var c0);
-            var gradient = MakeFurCustomModeClip(
-                animatorServices, avatarRoot, target, RainbowMode.Gradient, 0f, out var c1);
-            var flow0 = MakeFurCustomModeClip(
-                animatorServices, avatarRoot, target, RainbowMode.Flowing, 0f, out var c20);
-            var flow1 = MakeFurCustomModeClip(
-                animatorServices, avatarRoot, target, RainbowMode.Flowing, MaxScrollSpeed, out var c21);
-
-            var maxBindings = Math.Max(Math.Max(c0, c1), Math.Max(c20, c21));
-            if (maxBindings == 0) return 0;
-
-            var flowTree = MakeSpeedTree(target, "Fur Flowing Rainbow", speedParameter, flow0, flow1);
-
-            var layer = fx.AddLayer(LayerPriority.Default, $"NNR/{target.Id}/Fur lilToon Rainbow");
-            layer.DefaultWeight = 1f;
-            var sm = layer.StateMachine;
-
-            var sOff = sm.AddState("Fur Rainbow OFF", off);
-            var sGradient = sm.AddState("Fur グラデーション", gradient);
-            var sFlow = sm.AddState("Fur 流れる虹", flowTree);
-            sOff.WriteDefaultValues = false;
-            sGradient.WriteDefaultValues = false;
-            sFlow.WriteDefaultValues = false;
-            sm.DefaultState = sOff;
-
-            AddTransition(sOff, sGradient, CondIf(enableParameter), CondEquals(typeParameter, 2f));
-            AddTransition(sOff, sFlow, CondIf(enableParameter), CondEquals(typeParameter, 3f));
-
-            AddTransition(sGradient, sOff, CondIfNot(enableParameter));
-            AddTransition(sGradient, sOff, CondEquals(typeParameter, 1f));
-            AddTransition(sGradient, sFlow, CondEquals(typeParameter, 3f));
-
-            AddTransition(sFlow, sOff, CondIfNot(enableParameter));
-            AddTransition(sFlow, sOff, CondEquals(typeParameter, 1f));
-            AddTransition(sFlow, sGradient, CondEquals(typeParameter, 2f));
-
-            return maxBindings;
-        }
-
-        private static int AddFurCustomGlowLayer(
-            VirtualAnimatorController fx,
-            AnimatorServicesContext animatorServices,
-            Transform avatarRoot,
-            NNRainbowTarget target,
-            string enableParameter,
+            string speedParameter,
             string glowParameter)
         {
-            if (target.FurCustomSlots.Count == 0) return 0;
+            if (target.FurMaterialSets.Count == 0) return 0;
 
-            var normal = MakeFurCustomGlowClip(
-                animatorServices, avatarRoot, target, 0f, out var c0);
-            var glow = MakeFurCustomGlowClip(
-                animatorServices, avatarRoot, target, 1f, out var c1);
+            var baseClip = MakeFurMaterialSwapClip(
+                animatorServices, avatarRoot, target, FurSwapMode.Base, out var c0);
+            var gradientClip = MakeFurMaterialSwapClip(
+                animatorServices, avatarRoot, target, FurSwapMode.Gradient, out var c1);
+            var gradientGlowClip = MakeFurMaterialSwapClip(
+                animatorServices, avatarRoot, target, FurSwapMode.GradientGlow, out var c2);
+            var flowClip = MakeFurMaterialSwapClip(
+                animatorServices, avatarRoot, target, FurSwapMode.Flow, out var c3);
+            var flowGlowClip = MakeFurMaterialSwapClip(
+                animatorServices, avatarRoot, target, FurSwapMode.FlowGlow, out var c4);
 
-            var maxBindings = Math.Max(c0, c1);
+            var maxBindings = Math.Max(
+                Math.Max(c0, c1),
+                Math.Max(c2, Math.Max(c3, c4)));
+
             if (maxBindings == 0) return 0;
 
-            var layer = fx.AddLayer(LayerPriority.Default, $"NNR/{target.Id}/Fur Glow");
+            var layer = fx.AddLayer(LayerPriority.Default, $"NNR/{target.Id}/Fur Material Swap");
             layer.DefaultWeight = 1f;
             var sm = layer.StateMachine;
 
-            var sNormal = sm.AddState("Fur Glow OFF", normal);
-            var sGlow = sm.AddState("Fur Glow ON", glow);
-            sNormal.WriteDefaultValues = false;
-            sGlow.WriteDefaultValues = false;
-            sm.DefaultState = sNormal;
+            var sBase = sm.AddState("Fur Base", baseClip);
+            var sGradient = sm.AddState("Fur グラデーション", gradientClip);
+            var sGradientGlow = sm.AddState("Fur グラデーション + 発光", gradientGlowClip);
+            var sFlow = sm.AddState("Fur 流れる虹", flowClip);
+            var sFlowGlow = sm.AddState("Fur 流れる虹 + 発光", flowGlowClip);
 
-            AddTransition(sNormal, sGlow, CondIf(enableParameter), CondIf(glowParameter));
-            AddTransition(sGlow, sNormal, CondIfNot(enableParameter));
-            AddTransition(sGlow, sNormal, CondIfNot(glowParameter));
+            sBase.WriteDefaultValues = false;
+            sGradient.WriteDefaultValues = false;
+            sGradientGlow.WriteDefaultValues = false;
+            sFlow.WriteDefaultValues = false;
+            sFlowGlow.WriteDefaultValues = false;
+
+            sFlow.Speed = 1f;
+            sFlow.SpeedParameter = speedParameter;
+            sFlowGlow.Speed = 1f;
+            sFlowGlow.SpeedParameter = speedParameter;
+
+            sm.DefaultState = sBase;
+
+            // Base -> requested mode
+            AddTransition(sBase, sGradient,
+                CondIf(enableParameter), CondEquals(typeParameter, 2f), CondIfNot(glowParameter));
+            AddTransition(sBase, sGradientGlow,
+                CondIf(enableParameter), CondEquals(typeParameter, 2f), CondIf(glowParameter));
+            AddTransition(sBase, sFlow,
+                CondIf(enableParameter), CondEquals(typeParameter, 3f), CondIfNot(glowParameter));
+            AddTransition(sBase, sFlowGlow,
+                CondIf(enableParameter), CondEquals(typeParameter, 3f), CondIf(glowParameter));
+
+            // Gradient
+            AddTransition(sGradient, sBase, CondIfNot(enableParameter));
+            AddTransition(sGradient, sBase, CondEquals(typeParameter, 0f));
+            AddTransition(sGradient, sBase, CondEquals(typeParameter, 1f));
+            AddTransition(sGradient, sGradientGlow, CondIf(glowParameter));
+            AddTransition(sGradient, sFlow,
+                CondEquals(typeParameter, 3f), CondIfNot(glowParameter));
+            AddTransition(sGradient, sFlowGlow,
+                CondEquals(typeParameter, 3f), CondIf(glowParameter));
+
+            // Gradient glow
+            AddTransition(sGradientGlow, sBase, CondIfNot(enableParameter));
+            AddTransition(sGradientGlow, sBase, CondEquals(typeParameter, 0f));
+            AddTransition(sGradientGlow, sBase, CondEquals(typeParameter, 1f));
+            AddTransition(sGradientGlow, sGradient, CondIfNot(glowParameter));
+            AddTransition(sGradientGlow, sFlow,
+                CondEquals(typeParameter, 3f), CondIfNot(glowParameter));
+            AddTransition(sGradientGlow, sFlowGlow,
+                CondEquals(typeParameter, 3f), CondIf(glowParameter));
+
+            // Flow
+            AddTransition(sFlow, sBase, CondIfNot(enableParameter));
+            AddTransition(sFlow, sBase, CondEquals(typeParameter, 0f));
+            AddTransition(sFlow, sBase, CondEquals(typeParameter, 1f));
+            AddTransition(sFlow, sFlowGlow, CondIf(glowParameter));
+            AddTransition(sFlow, sGradient,
+                CondEquals(typeParameter, 2f), CondIfNot(glowParameter));
+            AddTransition(sFlow, sGradientGlow,
+                CondEquals(typeParameter, 2f), CondIf(glowParameter));
+
+            // Flow glow
+            AddTransition(sFlowGlow, sBase, CondIfNot(enableParameter));
+            AddTransition(sFlowGlow, sBase, CondEquals(typeParameter, 0f));
+            AddTransition(sFlowGlow, sBase, CondEquals(typeParameter, 1f));
+            AddTransition(sFlowGlow, sFlow, CondIfNot(glowParameter));
+            AddTransition(sFlowGlow, sGradient,
+                CondEquals(typeParameter, 2f), CondIfNot(glowParameter));
+            AddTransition(sFlowGlow, sGradientGlow,
+                CondEquals(typeParameter, 2f), CondIf(glowParameter));
+
+            Debug.Log(
+                $"[NN - Rainbow] Fur material-swap FX installed. target={target.DisplayName}, " +
+                $"renderers={target.FurMaterialSets.Count}, bindings={maxBindings}");
 
             return maxBindings;
         }
 
-        private static VirtualClip MakeFurCustomModeClip(
+        private static VirtualClip MakeFurMaterialSwapClip(
             AnimatorServicesContext animatorServices,
             Transform avatarRoot,
             NNRainbowTarget target,
-            RainbowMode mode,
-            float speed,
+            FurSwapMode mode,
             out int bindingCount)
         {
             var native = new AnimationClip
             {
-                name = $"NNR_{target.Id}_FurCustom_{mode}_{speed:0.##}",
-                frameRate = 60f
+                name = $"NNR_{target.Id}_FurSwap_{mode}",
+                frameRate = 12f
             };
-            bindingCount = 0;
 
-            var shaderMode = mode == RainbowMode.Gradient ? 2f :
-                             mode == RainbowMode.Flowing ? 3f : 0f;
-            var strength = mode == RainbowMode.Gradient || mode == RainbowMode.Flowing ? 1f : 0f;
-
-            foreach (var pair in target.FurCustomSlots)
+            if (mode == FurSwapMode.Flow || mode == FurSwapMode.FlowGlow)
             {
-                var renderer = pair.Key;
-                if (renderer == null) continue;
-
-                var materials = renderer.sharedMaterials ?? Array.Empty<Material>();
-                var path = ResolvePath(animatorServices, avatarRoot, renderer);
-
-                foreach (var slot in pair.Value)
-                {
-                    if (slot < 0 || slot >= materials.Length || materials[slot] == null) continue;
-
-                    AddConstant(native, path, typeof(Renderer),
-                        MaterialProperty(materials.Length, slot, "_NNRMode"), shaderMode);
-                    AddConstant(native, path, typeof(Renderer),
-                        MaterialProperty(materials.Length, slot, "_NNRSpeed"), speed);
-                    AddConstant(native, path, typeof(Renderer),
-                        MaterialProperty(materials.Length, slot, "_NNRStrength"), strength);
-                    bindingCount += 3;
-                }
+                var settings = AnimationUtility.GetAnimationClipSettings(native);
+                settings.loopTime = true;
+                AnimationUtility.SetAnimationClipSettings(native, settings);
             }
 
-            var result = VirtualClip.Clone(animatorServices.ControllerContext.CloneContext, native);
-            UnityEngine.Object.DestroyImmediate(native);
-            return result;
-        }
-
-        private static VirtualClip MakeFurCustomGlowClip(
-            AnimatorServicesContext animatorServices,
-            Transform avatarRoot,
-            NNRainbowTarget target,
-            float glow,
-            out int bindingCount)
-        {
-            var native = new AnimationClip
-            {
-                name = $"NNR_{target.Id}_FurGlow_{glow:0}",
-                frameRate = 60f
-            };
             bindingCount = 0;
 
-            foreach (var pair in target.FurCustomSlots)
+            foreach (var rendererPair in target.FurMaterialSets)
             {
-                var renderer = pair.Key;
+                var renderer = rendererPair.Key;
                 if (renderer == null) continue;
 
-                var materials = renderer.sharedMaterials ?? Array.Empty<Material>();
                 var path = ResolvePath(animatorServices, avatarRoot, renderer);
+                var rendererType = renderer.GetType();
 
-                foreach (var slot in pair.Value)
+                foreach (var slotPair in rendererPair.Value)
                 {
-                    if (slot < 0 || slot >= materials.Length || materials[slot] == null) continue;
+                    var slot = slotPair.Key;
+                    var set = slotPair.Value;
+                    if (set == null) continue;
 
-                    AddConstant(native, path, typeof(Renderer),
-                        MaterialProperty(materials.Length, slot, "_NNRGlow"), glow);
+                    var propertyName = $"m_Materials.Array.data[{slot}]";
+
+                    if (mode == FurSwapMode.Flow || mode == FurSwapMode.FlowGlow)
+                    {
+                        var frames = mode == FurSwapMode.Flow ? set.Flow : set.FlowGlow;
+                        if (frames == null || frames.Length == 0) continue;
+
+                        var keys = new ObjectReferenceKeyframe[frames.Length + 1];
+                        for (var i = 0; i < frames.Length; i++)
+                        {
+                            keys[i] = new ObjectReferenceKeyframe
+                            {
+                                time = (float)i / frames.Length,
+                                value = frames[i]
+                            };
+                        }
+                        keys[frames.Length] = new ObjectReferenceKeyframe
+                        {
+                            time = 1f,
+                            value = frames[0]
+                        };
+
+                        AnimationUtility.SetObjectReferenceCurve(
+                            native,
+                            new EditorCurveBinding
+                            {
+                                path = path,
+                                type = rendererType,
+                                propertyName = propertyName
+                            },
+                            keys);
+                    }
+                    else
+                    {
+                        Material material = null;
+                        switch (mode)
+                        {
+                            case FurSwapMode.Base:
+                                material = set.Base;
+                                break;
+                            case FurSwapMode.Gradient:
+                                material = set.Gradient;
+                                break;
+                            case FurSwapMode.GradientGlow:
+                                material = set.GradientGlow;
+                                break;
+                        }
+
+                        if (material == null) continue;
+
+                        AnimationUtility.SetObjectReferenceCurve(
+                            native,
+                            new EditorCurveBinding
+                            {
+                                path = path,
+                                type = rendererType,
+                                propertyName = propertyName
+                            },
+                            new[]
+                            {
+                                new ObjectReferenceKeyframe
+                                {
+                                    time = 0f,
+                                    value = material
+                                }
+                            });
+                    }
+
                     bindingCount++;
                 }
             }
 
-            var result = VirtualClip.Clone(animatorServices.ControllerContext.CloneContext, native);
+            var result = VirtualClip.Clone(
+                animatorServices.ControllerContext.CloneContext,
+                native);
             UnityEngine.Object.DestroyImmediate(native);
             return result;
         }
@@ -760,5 +814,6 @@ namespace Nekoneko.NNRainbow.Editor
         }
 
         private enum RainbowMode { Off, GlobalHue, Gradient, Flowing }
+        private enum FurSwapMode { Base, Gradient, GradientGlow, Flow, FlowGlow }
     }
 }
