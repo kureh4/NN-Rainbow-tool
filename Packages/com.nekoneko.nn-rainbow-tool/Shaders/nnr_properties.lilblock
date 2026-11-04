@@ -1,8 +1,0 @@
-        //----------------------------------------------------------------------------------------------------------------------
-        // NN - Rainbow
-        [HideInInspector] _NNRMode      ("NNR Mode", Float) = 0
-        [HideInInspector] _NNRSpeed     ("NNR Speed", Float) = 0
-        [HideInInspector] _NNRScale     ("NNR Scale", Float) = 1
-        [HideInInspector] _NNROffset    ("NNR Offset", Float) = 0
-        [HideInInspector] _NNRStrength  ("NNR Strength", Range(0,1)) = 1
-        [HideInInspector] _NNRGlow      ("NNR Glow", Range(0,1)) = 0
