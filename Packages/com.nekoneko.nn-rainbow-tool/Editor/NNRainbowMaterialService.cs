@@ -10,6 +10,7 @@ namespace Nekoneko.NNRainbow.Editor
     {
         private const string RainbowTextureGuid = "89070c92845f40b5917a66d82036f5ab";
         private const float SpatialRainbowSpan = 5f / 6f;
+        private const int FurFlowFrames = 12;
 
 
         public static bool ApplyBuildClones(
@@ -65,18 +66,26 @@ namespace Nekoneko.NNRainbow.Editor
 
                         if (isFur)
                         {
-                            if (TryCreateLilToonFurClone(renderer, original, out clone, out var furError))
+                            if (TryCreateLilToonFurMaterialSet(
+                                    context,
+                                    renderer,
+                                    original,
+                                    out var materialSet,
+                                    out var furError))
                             {
-                                if (!target.FurCustomSlots.TryGetValue(renderer, out var customSlots))
-                                {
-                                    customSlots = new List<int>();
-                                    target.FurCustomSlots[renderer] = customSlots;
-                                }
-                                if (!customSlots.Contains(slot)) customSlots.Add(slot);
+                                clone = materialSet.Base;
 
-                                Debug.Log("[NN - Rainbow] lilToon Fur extension active: renderer=" +
+                                if (!target.FurMaterialSets.TryGetValue(renderer, out var bySlot))
+                                {
+                                    bySlot = new Dictionary<int, NNRainbowFurMaterialSet>();
+                                    target.FurMaterialSets[renderer] = bySlot;
+                                }
+                                bySlot[slot] = materialSet;
+
+                                Debug.Log("[NN - Rainbow] lilToon Fur material-swap set active: renderer=" +
                                           renderer.name + ", material=" + original.name +
-                                          ", shader=" + clone.shader.name);
+                                          ", shader=" + clone.shader.name +
+                                          ", flowFrames=" + materialSet.Flow.Length);
                             }
                             else
                             {
@@ -115,18 +124,19 @@ namespace Nekoneko.NNRainbow.Editor
             return true;
         }
 
-        private static bool TryCreateLilToonFurClone(
+        private static bool TryCreateLilToonFurMaterialSet(
+            nadena.dev.ndmf.BuildContext context,
             Renderer renderer,
             Material original,
-            out Material clone,
+            out NNRainbowFurMaterialSet set,
             out string error)
         {
-            clone = null;
+            set = null;
             error = null;
 
-            if (renderer == null || original == null)
+            if (context == null || renderer == null || original == null)
             {
-                error = "renderer or material was null";
+                error = "build context, renderer, or material was null";
                 return false;
             }
 
@@ -169,31 +179,6 @@ namespace Nekoneko.NNRainbow.Editor
                 return false;
             }
 
-            // Preserve the original lilToon material exactly, then swap only the shader.
-            // This avoids rebuilding the material property sheet from a different shader first.
-            clone = new Material(original)
-            {
-                name = original.name + "__NNR_LILTOON_FUR"
-            };
-            clone.shader = shader;
-            clone.renderQueue = original.renderQueue;
-
-            if (!clone.HasProperty("_NNRMode") ||
-                !clone.HasProperty("_NNRSpeed") ||
-                !clone.HasProperty("_NNRScale") ||
-                !clone.HasProperty("_NNROffset") ||
-                !clone.HasProperty("_NNRStrength") ||
-                !clone.HasProperty("_NNRGlow"))
-            {
-                error = "NN Rainbow shader swap completed but the material still cannot see NN Rainbow properties. " +
-                        "shader=" + (clone.shader != null ? clone.shader.name : "<null>") +
-                        ", path=" + shaderPath +
-                        ", shaderPropertyCheck=" + NNRainbowShaderBootstrap.DescribeRainbowProperties(shader);
-                UnityEngine.Object.DestroyImmediate(clone);
-                clone = null;
-                return false;
-            }
-
             var bounds = renderer.localBounds;
             var diagonalRange = Mathf.Max(
                 0.0001f,
@@ -205,12 +190,72 @@ namespace Nekoneko.NNRainbow.Editor
             var scale = SpatialRainbowSpan / diagonalRange;
             var offset = -diagonalMin * scale;
 
-            SetFloatIf(clone, "_NNRMode", 0f);
-            SetFloatIf(clone, "_NNRSpeed", 0f);
-            SetFloatIf(clone, "_NNRScale", scale);
-            SetFloatIf(clone, "_NNROffset", offset);
-            SetFloatIf(clone, "_NNRStrength", 1f);
-            SetFloatIf(clone, "_NNRGlow", 0f);
+            Material MakeVariant(string suffix, float mode, float phaseOffset, float glow)
+            {
+                var material = new Material(original)
+                {
+                    name = original.name + suffix
+                };
+                material.shader = shader;
+                material.renderQueue = original.renderQueue;
+
+                if (!material.HasProperty("_NNRMode") ||
+                    !material.HasProperty("_NNRScale") ||
+                    !material.HasProperty("_NNROffset") ||
+                    !material.HasProperty("_NNRStrength") ||
+                    !material.HasProperty("_NNRGlow"))
+                {
+                    UnityEngine.Object.DestroyImmediate(material);
+                    return null;
+                }
+
+                SetFloatIf(material, "_NNRMode", mode);
+                SetFloatIf(material, "_NNRSpeed", 0f);
+                SetFloatIf(material, "_NNRScale", scale);
+                SetFloatIf(material, "_NNROffset", offset + phaseOffset);
+                SetFloatIf(material, "_NNRStrength", mode > 1.5f ? 1f : 0f);
+                SetFloatIf(material, "_NNRGlow", glow);
+
+                context.AssetSaver.SaveAsset(material);
+                return material;
+            }
+
+            var baseMaterial = MakeVariant("__NNR_Base", 0f, 0f, 0f);
+            var gradient = MakeVariant("__NNR_Gradient", 2f, 0f, 0f);
+            var gradientGlow = MakeVariant("__NNR_GradientGlow", 2f, 0f, 1f);
+
+            if (baseMaterial == null || gradient == null || gradientGlow == null)
+            {
+                error = "NN Rainbow Fur material variants could not see required custom shader properties. " +
+                        "shader=" + shader.name +
+                        ", shaderPropertyCheck=" + NNRainbowShaderBootstrap.DescribeRainbowProperties(shader);
+                return false;
+            }
+
+            var flow = new Material[FurFlowFrames];
+            var flowGlow = new Material[FurFlowFrames];
+
+            for (var i = 0; i < FurFlowFrames; i++)
+            {
+                var phase = (float)i / FurFlowFrames;
+                flow[i] = MakeVariant($"__NNR_Flow_{i:00}", 2f, phase, 0f);
+                flowGlow[i] = MakeVariant($"__NNR_FlowGlow_{i:00}", 2f, phase, 1f);
+
+                if (flow[i] == null || flowGlow[i] == null)
+                {
+                    error = "NN Rainbow Fur flow material variants could not be created.";
+                    return false;
+                }
+            }
+
+            set = new NNRainbowFurMaterialSet
+            {
+                Base = baseMaterial,
+                Gradient = gradient,
+                GradientGlow = gradientGlow,
+                Flow = flow,
+                FlowGlow = flowGlow
+            };
 
             return true;
         }
