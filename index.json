@@ -6,6 +6,36 @@
   "packages": {
     "com.nekoneko.nn-rainbow-tool": {
       "versions": {
+        "1.0.22": {
+          "name": "com.nekoneko.nn-rainbow-tool",
+          "displayName": "NN - Rainbow tool",
+          "version": "1.0.22",
+          "unity": "2022.3",
+          "description": "VRChatアバターのlilToonマテリアルへ、NDMFで非破壊にレインボー表現を追加するツールです。",
+          "author": {
+            "name": "ねこねこ",
+            "email": "65277297+kureh4@users.noreply.github.com",
+            "url": "https://github.com/kureh4/NN-Rainbow-tool"
+          },
+          "keywords": [
+            "vrchat",
+            "avatar",
+            "liltoon",
+            "ndmf",
+            "rainbow"
+          ],
+          "zipSHA256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "url": "https://raw.githubusercontent.com/kureh4/NN-Rainbow-tool/main/Releases/com.nekoneko.nn-rainbow-tool-1.0.22.zip",
+          "vpmDependencies": {
+            "com.vrchat.avatars": ">=3.10.0 <4.0.0",
+            "nadena.dev.ndmf": ">=1.14.7 <2.0.0-a",
+            "jp.lilxyzw.liltoon": ">=2.0.0 <3.0.0"
+          },
+          "legacyFolders": {
+            "Assets\\nekoneko\\NN - Rainbow tool": "7d43a092b1826720f599fff346d1f825",
+            "Assets\\nekoneko\\NN_Rainbow": "7d43a092b1826720f599fff346d1f825"
+          }
+        },
         "1.0.21": {
           "name": "com.nekoneko.nn-rainbow-tool",
           "displayName": "NN - Rainbow tool",

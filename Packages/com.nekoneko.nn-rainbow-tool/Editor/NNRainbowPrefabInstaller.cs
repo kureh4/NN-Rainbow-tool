@@ -6,7 +6,8 @@ namespace Nekoneko.NNRainbow.Editor
     [InitializeOnLoad]
     internal static class NNRainbowPrefabInstaller
     {
-        private const string SourcePrefabGuid = "0673d3a454cb9b24a9af583144573439";
+        private const string SourcePrefabGuid = "f27e9e0c9e828654c9a72fd23391a85f";
+        private const string SourcePrefabPath = "Packages/com.nekoneko.nn-rainbow-tool/Prefab/NN_Rainbow.prefab";
         private const string DestinationRoot = "Assets/nekoneko";
         private const string DestinationFolder = DestinationRoot + "/NN - Rainbow tool";
         private const string DestinationPrefab = DestinationFolder + "/NN_Rainbow.prefab";
@@ -40,9 +41,16 @@ namespace Nekoneko.NNRainbow.Editor
             }
 
             var sourcePrefab = AssetDatabase.GUIDToAssetPath(SourcePrefabGuid);
-            if (string.IsNullOrEmpty(sourcePrefab))
+            if (string.IsNullOrEmpty(sourcePrefab) ||
+                AssetDatabase.LoadAssetAtPath<GameObject>(sourcePrefab) == null)
             {
-                Debug.LogWarning("[NN - Rainbow] Package内のNN_Rainbow.prefabが見つかりません。");
+                sourcePrefab = SourcePrefabPath;
+            }
+
+            if (AssetDatabase.LoadAssetAtPath<GameObject>(sourcePrefab) == null)
+            {
+                Debug.LogWarning("[NN - Rainbow] Package内のNN_Rainbow.prefabが見つかりません。GUID=" +
+                                 SourcePrefabGuid + ", Path=" + SourcePrefabPath);
                 return;
             }
 
