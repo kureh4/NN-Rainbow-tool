@@ -9,6 +9,9 @@ namespace Nekoneko.NNRainbow.Editor
     internal static class NNRainbowMaterialService
     {
         private const string RainbowTextureGuid = "89070c92845f40b5917a66d82036f5ab";
+        private const string SpatialFurShaderGuid = "30fd2be66625487a859efbf5d32646e1";
+        private const string SpatialFurCutoutShaderGuid = "f38d2b4e658641f8bf21133f967c1cc9";
+        private const string SpatialFurTwoPassShaderGuid = "185ce65981d44dbf8a386a3ae172e058";
         private const float SpatialRainbowSpan = 5f / 6f; // red -> purple across the visible diagonal
 
         public static bool ApplyBuildClones(nadena.dev.ndmf.BuildContext context, IReadOnlyList<NNRainbowTarget> targets, out string error)
@@ -81,26 +84,37 @@ namespace Nekoneko.NNRainbow.Editor
                 variant != NNRainbowVariant.FurCutout &&
                 variant != NNRainbowVariant.FurTwoPass) return false;
 
-            string shaderName;
+            string shaderGuid;
+            string fallbackShaderName;
             switch (variant)
             {
                 case NNRainbowVariant.Fur:
-                    shaderName = "Hidden/NNRainbowSpatial/Fur";
+                    shaderGuid = SpatialFurShaderGuid;
+                    fallbackShaderName = "Hidden/NNRainbowSpatial/Fur";
                     break;
                 case NNRainbowVariant.FurCutout:
-                    shaderName = "Hidden/NNRainbowSpatial/FurCutout";
+                    shaderGuid = SpatialFurCutoutShaderGuid;
+                    fallbackShaderName = "Hidden/NNRainbowSpatial/FurCutout";
                     break;
                 case NNRainbowVariant.FurTwoPass:
-                    shaderName = "Hidden/NNRainbowSpatial/FurTwoPass";
+                    shaderGuid = SpatialFurTwoPassShaderGuid;
+                    fallbackShaderName = "Hidden/NNRainbowSpatial/FurTwoPass";
                     break;
                 default:
                     return false;
             }
 
-            var shader = Shader.Find(shaderName);
+            var shaderPath = AssetDatabase.GUIDToAssetPath(shaderGuid);
+            var shader = !string.IsNullOrEmpty(shaderPath)
+                ? AssetDatabase.LoadAllAssetsAtPath(shaderPath).OfType<Shader>().FirstOrDefault()
+                : null;
+
+            // Name lookup is only a fallback; the package asset GUID is the primary route.
+            if (shader == null) shader = Shader.Find(fallbackShaderName);
+
             if (shader == null || !shader.isSupported)
             {
-                Debug.LogWarning("[NN - Rainbow] Spatial Fur shader unavailable; keeping stable fallback: " + shaderName);
+                Debug.LogWarning("[NN - Rainbow] Spatial Fur shader unavailable; keeping stable fallback. guid=" + shaderGuid + ", path=" + shaderPath + ", name=" + fallbackShaderName);
                 return false;
             }
 
