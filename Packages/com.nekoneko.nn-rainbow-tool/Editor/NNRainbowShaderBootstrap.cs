@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using UnityEditor;
 using UnityEngine;
 
@@ -7,7 +9,7 @@ namespace Nekoneko.NNRainbow.Editor
     [InitializeOnLoad]
     internal static class NNRainbowShaderBootstrap
     {
-        private const string SessionKey = "NNRainbow.CustomFurShaders.Ready.1.0.25";
+        private const string SessionKey = "NNRainbow.CustomFurShaders.Ready.1.0.26";
 
         internal const string FurShaderPath =
             "Packages/com.nekoneko.nn-rainbow-tool/Shaders/lts_nnr_fur.lilcontainer";
@@ -115,21 +117,46 @@ namespace Nekoneko.NNRainbow.Editor
         {
             if (shader == null || !shader.isSupported) return false;
 
-            Material material = null;
+            var required = new[]
+            {
+                "_NNRMode",
+                "_NNRSpeed",
+                "_NNRScale",
+                "_NNROffset",
+                "_NNRStrength",
+                "_NNRGlow"
+            };
+
+            var found = new HashSet<string>();
+            var count = ShaderUtil.GetPropertyCount(shader);
+            for (var i = 0; i < count; i++)
+                found.Add(ShaderUtil.GetPropertyName(shader, i));
+
+            return required.All(found.Contains);
+        }
+
+        internal static string DescribeRainbowProperties(Shader shader)
+        {
+            if (shader == null) return "shader=<null>";
+
             try
             {
-                material = new Material(shader);
-                return material.HasProperty("_NNRMode") &&
-                       material.HasProperty("_NNRSpeed") &&
-                       material.HasProperty("_NNRScale") &&
-                       material.HasProperty("_NNROffset") &&
-                       material.HasProperty("_NNRStrength") &&
-                       material.HasProperty("_NNRGlow");
+                var names = new List<string>();
+                var count = ShaderUtil.GetPropertyCount(shader);
+                for (var i = 0; i < count; i++)
+                {
+                    var name = ShaderUtil.GetPropertyName(shader, i);
+                    if (name != null && name.StartsWith("_NNR", StringComparison.Ordinal))
+                        names.Add(name);
+                }
+
+                return names.Count > 0
+                    ? string.Join(",", names)
+                    : "<no _NNR properties>";
             }
-            finally
+            catch (Exception e)
             {
-                if (material != null)
-                    UnityEngine.Object.DestroyImmediate(material);
+                return "ShaderUtil failed: " + e.GetType().Name + ": " + e.Message;
             }
         }
     }
