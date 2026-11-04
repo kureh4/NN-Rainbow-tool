@@ -7,7 +7,7 @@ const PACKAGES = {
     name: "com.nekoneko.nn-rainbow-tool",
     displayName: "NN - Rainbow tool",
     description: "VRChatアバターのlilToonマテリアルへ、NDMFで非破壊にレインボー表現を追加するツールです。",
-    version: "1.0.20",
+    version: "1.0.21",
     author: {
       name: "ねこねこ",
       url: "https://github.com/kureh4/NN-Rainbow-tool",
