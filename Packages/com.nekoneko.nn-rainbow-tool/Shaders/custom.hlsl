@@ -8,8 +8,6 @@
     float _NNRSpatialScale; \
     float _NNRSpatialOffset;
 
-#define LIL_CUSTOM_TEXTURES \
-    TEXTURE2D(_NNRRainbowTex);
 
 #define LIL_CUSTOM_VERT_COPY
 
