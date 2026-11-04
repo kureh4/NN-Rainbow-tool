@@ -207,8 +207,8 @@ namespace Nekoneko.NNRainbow.Editor
             if (target.FurSlots.Count == 0) return 0;
 
             // Type=1 は従来どおり Fur を残した全体色相。
-            // Type=2 / Type=3 も Fur は消さず、元の _MainTex / _FurNoiseMask / Fur設定をそのまま使う。
-            // 斜め虹そのものは spatial Fur shader 側で最終色へ合成する。
+            // Type=2 / Type=3 は Fur を消さず、別レイヤーで stock lilToon の Main 2nd/3rd に
+            // ビルド時生成した斜め虹アトラスを Multiply 合成する。
             var original = MakeFurColorOffClip(animatorServices, avatarRoot, target, out var c0);
             var rainbow = MakeFurRainbowClip(animatorServices, avatarRoot, target, out var c1);
             var maxBindings = Math.Max(c0, c1);
