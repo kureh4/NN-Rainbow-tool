@@ -11,12 +11,6 @@ namespace Nekoneko.NNRainbow.Editor
         private const string RainbowTextureGuid = "89070c92845f40b5917a66d82036f5ab";
         private const float SpatialRainbowSpan = 5f / 6f;
 
-        private const string FurShaderPath =
-            "Packages/com.nekoneko.nn-rainbow-tool/Shaders/lts_nnr_fur.lilcontainer";
-        private const string FurCutoutShaderPath =
-            "Packages/com.nekoneko.nn-rainbow-tool/Shaders/lts_nnr_fur_cutout.lilcontainer";
-        private const string FurTwoPassShaderPath =
-            "Packages/com.nekoneko.nn-rainbow-tool/Shaders/lts_nnr_fur_two.lilcontainer";
 
         public static bool ApplyBuildClones(
             nadena.dev.ndmf.BuildContext context,
@@ -142,21 +136,21 @@ namespace Nekoneko.NNRainbow.Editor
                 return false;
             }
 
-            var shaderPath = FurShaderPath;
+            var shaderPath = NNRainbowShaderBootstrap.FurShaderPath;
             var shaderName = "Hidden/NNRainbow/Fur";
 
             switch (variant)
             {
                 case NNRainbowVariant.Fur:
-                    shaderPath = FurShaderPath;
+                    shaderPath = NNRainbowShaderBootstrap.FurShaderPath;
                     shaderName = "Hidden/NNRainbow/Fur";
                     break;
                 case NNRainbowVariant.FurCutout:
-                    shaderPath = FurCutoutShaderPath;
+                    shaderPath = NNRainbowShaderBootstrap.FurCutoutShaderPath;
                     shaderName = "Hidden/NNRainbow/FurCutout";
                     break;
                 case NNRainbowVariant.FurTwoPass:
-                    shaderPath = FurTwoPassShaderPath;
+                    shaderPath = NNRainbowShaderBootstrap.FurTwoPassShaderPath;
                     shaderName = "Hidden/NNRainbow/FurTwoPass";
                     break;
                 default:
@@ -164,14 +158,14 @@ namespace Nekoneko.NNRainbow.Editor
                     return false;
             }
 
-            var shader = AssetDatabase.LoadAssetAtPath<Shader>(shaderPath);
-            if (shader == null)
-                shader = Shader.Find(shaderName);
-
-            if (shader == null || !shader.isSupported)
+            if (!NNRainbowShaderBootstrap.EnsureShaderReady(
+                    shaderPath,
+                    shaderName,
+                    out var shader,
+                    out var shaderError))
             {
-                error = "lilToon custom Fur shader was not available. path=" +
-                        shaderPath + ", name=" + shaderName;
+                error = shaderError ?? ("lilToon custom Fur shader was not available. path=" +
+                                        shaderPath + ", name=" + shaderName);
                 return false;
             }
 
