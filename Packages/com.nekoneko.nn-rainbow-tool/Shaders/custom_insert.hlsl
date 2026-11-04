@@ -1,7 +1,7 @@
 float3 nnrHsvToRgb(float h, float s, float v)
 {
-    float3 p = abs(frac(h.xxx + float3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0);
-    return v * lerp(1.0.xxx, saturate(p - 1.0), s);
+    float3 p = abs(frac(float3(h, h, h) + float3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0);
+    return v * lerp(float3(1.0, 1.0, 1.0), saturate(p - 1.0), s);
 }
 
 void lilNNRainbowSpatial(inout lilFragData fd)
