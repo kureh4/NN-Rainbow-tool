@@ -1,0 +1,22 @@
+Shader "Hidden/*LIL_SHADER_NAME*/FurTwoPass"
+{
+    Properties
+    {
+        lilProperties "Default"
+        lilProperties "DefaultFurTransparent"
+        lilProperties "nnr_properties.lilblock"
+    }
+
+    HLSLINCLUDE
+        #define LIL_RENDER 2
+        #include "nnr_custom.hlsl"
+    ENDHLSL
+
+    lilSubShaderTags {"RenderType" = "TransparentCutout" "Queue" = "Transparent"}
+    lilSubShaderBRP "DefaultFurTwoPass"
+    lilSubShaderLWRP "DefaultFur"
+    lilSubShaderURP "DefaultFurTwoPass"
+    lilSubShaderHDRP "DefaultFurTwoPass"
+
+    CustomEditor "*LIL_EDITOR_NAME*"
+}
