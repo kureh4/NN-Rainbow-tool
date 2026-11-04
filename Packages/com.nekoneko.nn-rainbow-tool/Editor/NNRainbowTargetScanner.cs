@@ -15,6 +15,7 @@ namespace Nekoneko.NNRainbow.Editor
         public readonly List<Material> SupportedMaterials = new List<Material>();
         public readonly Dictionary<Renderer, List<int>> SupportedSlots = new Dictionary<Renderer, List<int>>();
         public readonly Dictionary<Renderer, List<int>> FurSlots = new Dictionary<Renderer, List<int>>();
+        public readonly Dictionary<Renderer, List<int>> FurSpatialSlots = new Dictionary<Renderer, List<int>>();
         public readonly Dictionary<Renderer, List<int>> FakeShadowSlots = new Dictionary<Renderer, List<int>>();
         public readonly List<(GameObject go, Material material, string shader)> UnsupportedMaterials =
             new List<(GameObject, Material, string)>();
