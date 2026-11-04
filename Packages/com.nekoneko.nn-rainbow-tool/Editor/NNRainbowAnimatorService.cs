@@ -205,12 +205,12 @@ namespace Nekoneko.NNRainbow.Editor
         {
             if (target.FurSlots.Count == 0) return 0;
 
-            // Type=1 は従来どおり Fur を残して全体色相。
-            // Type=2 / Type=3 は Fur の長さとレイヤー数を 0 にして見た目上 Fur をオフにする。
+            // Type=1 は従来どおり Fur を残した全体色相。
+            // Type=2 / Type=3 も Fur は消さず、元の _MainTex / _FurNoiseMask / Fur設定をそのまま使う。
+            // 斜め虹そのものは spatial Fur shader 側で最終色へ合成する。
             var original = MakeFurColorOffClip(animatorServices, avatarRoot, target, out var c0);
             var rainbow = MakeFurRainbowClip(animatorServices, avatarRoot, target, out var c1);
-            var hidden = MakeFurHiddenClip(animatorServices, avatarRoot, target, out var c2);
-            var maxBindings = Math.Max(c0, Math.Max(c1, c2));
+            var maxBindings = Math.Max(c0, c1);
             if (maxBindings == 0) return 0;
 
             var layer = fx.AddLayer(LayerPriority.Default, $"NNR/{target.Id}/Fur Color");
@@ -219,24 +219,17 @@ namespace Nekoneko.NNRainbow.Editor
 
             var sOriginal = sm.AddState("Fur Original", original);
             var sRainbow = sm.AddState("Fur 全体色相", rainbow);
-            var sHidden = sm.AddState("Fur OFF for Rainbow", hidden);
             sOriginal.WriteDefaultValues = false;
             sRainbow.WriteDefaultValues = false;
-            sHidden.WriteDefaultValues = false;
             sRainbow.Speed = 1f;
             sRainbow.SpeedParameter = speedParameter;
             sm.DefaultState = sOriginal;
 
             AddTransition(sOriginal, sRainbow, CondIf(enableParameter), CondEquals(typeParameter, 1f));
-            AddTransition(sOriginal, sHidden, CondIf(enableParameter), CondEquals(typeParameter, 2f));
-            AddTransition(sOriginal, sHidden, CondIf(enableParameter), CondEquals(typeParameter, 3f));
 
             AddTransition(sRainbow, sOriginal, CondIfNot(enableParameter));
-            AddTransition(sRainbow, sHidden, CondEquals(typeParameter, 2f));
-            AddTransition(sRainbow, sHidden, CondEquals(typeParameter, 3f));
-
-            AddTransition(sHidden, sOriginal, CondIfNot(enableParameter));
-            AddTransition(sHidden, sRainbow, CondEquals(typeParameter, 1f));
+            AddTransition(sRainbow, sOriginal, CondEquals(typeParameter, 2f));
+            AddTransition(sRainbow, sOriginal, CondEquals(typeParameter, 3f));
 
             return maxBindings;
         }
@@ -380,52 +373,6 @@ namespace Nekoneko.NNRainbow.Editor
                     if (mat.HasProperty("_FurLayerNum"))
                     {
                         AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurLayerNum"), mat.GetFloat("_FurLayerNum"));
-                        bindingCount++;
-                    }
-                }
-            }
-
-            var result = VirtualClip.Clone(animatorServices.ControllerContext.CloneContext, native);
-            UnityEngine.Object.DestroyImmediate(native);
-            return result;
-        }
-
-        private static VirtualClip MakeFurHiddenClip(
-            AnimatorServicesContext animatorServices,
-            Transform avatarRoot,
-            NNRainbowTarget target,
-            out int bindingCount)
-        {
-            var native = new AnimationClip
-            {
-                name = $"NNR_{target.Id}_Fur_Hidden",
-                frameRate = 60f
-            };
-            bindingCount = 0;
-
-            foreach (var pair in target.FurSlots)
-            {
-                var renderer = pair.Key;
-                if (renderer == null) continue;
-                var materials = renderer.sharedMaterials ?? Array.Empty<Material>();
-                var path = ResolvePath(animatorServices, avatarRoot, renderer);
-
-                foreach (var slot in pair.Value)
-                {
-                    if (slot < 0 || slot >= materials.Length) continue;
-                    var mat = materials[slot];
-                    if (mat == null) continue;
-
-                    // Keep the base material color/settings intact and only collapse the Fur geometry.
-                    // _FurLayerNum=0 reduces generated layers; _FurVector.w=0 removes the visible fur length.
-                    if (mat.HasProperty("_FurVector"))
-                    {
-                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurVector.w"), 0f);
-                        bindingCount++;
-                    }
-                    if (mat.HasProperty("_FurLayerNum"))
-                    {
-                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_FurLayerNum"), 0f);
                         bindingCount++;
                     }
                 }
