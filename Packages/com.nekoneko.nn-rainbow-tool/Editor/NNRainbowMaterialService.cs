@@ -12,6 +12,8 @@ namespace Nekoneko.NNRainbow.Editor
         private const string RainbowTextureGuid = "89070c92845f40b5917a66d82036f5ab";
         private const int FurBakeSize = 256;
         private const int FurFlowFrames = 12;
+        private const int FurFramePadding = 1;
+        private const int FurAtlasFrameHeight = FurBakeSize + FurFramePadding * 2;
         private const float SpatialRainbowSpan = 5f / 6f;
 
         public static bool ApplyBuildClones(nadena.dev.ndmf.BuildContext context, IReadOnlyList<NNRainbowTarget> targets, out string error)
@@ -117,10 +119,20 @@ namespace Nekoneko.NNRainbow.Editor
                 return false;
             }
 
-            if (!TryBakeFurFrames(context, mesh, slot, renderer.name, original.name, out var frames, out error))
+            if (!TryBakeFurAtlas(
+                    context,
+                    mesh,
+                    slot,
+                    renderer.name,
+                    original.name,
+                    out var atlas,
+                    out var frameCount,
+                    out var vScale,
+                    out var vOffsets,
+                    out error))
                 return false;
 
-            PrepareMainOverlay(clone, mainLayer, frames[0]);
+            PrepareMainOverlay(clone, mainLayer, atlas, vScale, vOffsets[0]);
 
             if (!target.FurBakedSlots.TryGetValue(renderer, out var bySlot))
             {
@@ -131,7 +143,10 @@ namespace Nekoneko.NNRainbow.Editor
             bySlot[slot] = new NNRainbowFurBakeData
             {
                 MainLayer = mainLayer,
-                Frames = frames
+                Atlas = atlas,
+                FrameCount = frameCount,
+                VScale = vScale,
+                VOffsets = vOffsets
             };
 
             return true;
@@ -154,7 +169,7 @@ namespace Nekoneko.NNRainbow.Editor
             return 0;
         }
 
-        private static void PrepareMainOverlay(Material material, int layer, Texture2D texture)
+        private static void PrepareMainOverlay(Material material, int layer, Texture2D texture, float vScale, float vOffset)
         {
             if (material == null || (layer != 2 && layer != 3)) return;
 
@@ -178,8 +193,8 @@ namespace Nekoneko.NNRainbow.Editor
             if (material.HasProperty(tex))
             {
                 material.SetTexture(tex, texture);
-                material.SetTextureScale(tex, Vector2.one);
-                material.SetTextureOffset(tex, Vector2.zero);
+                material.SetTextureScale(tex, new Vector2(1f, vScale));
+                material.SetTextureOffset(tex, new Vector2(0f, vOffset));
             }
 
             if (material.HasProperty(blendMask))
@@ -203,16 +218,22 @@ namespace Nekoneko.NNRainbow.Editor
             SetFloatIf(material, "_Main" + suffix + "TexIsMSDF", 0f);
         }
 
-        private static bool TryBakeFurFrames(
+        private static bool TryBakeFurAtlas(
             nadena.dev.ndmf.BuildContext context,
             Mesh mesh,
             int subMesh,
             string rendererName,
             string materialName,
-            out Texture2D[] frames,
+            out Texture2D atlas,
+            out int frameCount,
+            out float vScale,
+            out float[] vOffsets,
             out string error)
         {
-            frames = null;
+            atlas = null;
+            frameCount = FurFlowFrames;
+            vScale = 0f;
+            vOffsets = null;
             error = null;
 
             if (mesh == null)
@@ -290,38 +311,59 @@ namespace Nekoneko.NNRainbow.Editor
                             return false;
                         }
 
-                        frames = new Texture2D[FurFlowFrames];
+                        var atlasHeight = FurAtlasFrameHeight * FurFlowFrames;
+                        var colors = new Color32[FurBakeSize * atlasHeight];
+                        var transparentWhite = new Color32(255, 255, 255, 0);
+                        for (var i = 0; i < colors.Length; i++) colors[i] = transparentWhite;
+
+                        vScale = FurBakeSize / (float)atlasHeight;
+                        vOffsets = new float[FurFlowFrames];
+
                         for (var frame = 0; frame < FurFlowFrames; frame++)
                         {
                             var phase = (float)frame / FurFlowFrames;
-                            var colors = new Color32[hueMap.Length];
+                            var frameBaseY = frame * FurAtlasFrameHeight;
+                            var innerStartY = frameBaseY + FurFramePadding;
+                            vOffsets[frame] = innerStartY / (float)atlasHeight;
 
-                            for (var p = 0; p < hueMap.Length; p++)
+                            for (var y = 0; y < FurBakeSize; y++)
                             {
-                                if (!coverage[p])
+                                for (var x = 0; x < FurBakeSize; x++)
                                 {
-                                    colors[p] = new Color32(255, 255, 255, 0);
-                                    continue;
-                                }
+                                    var sourceIndex = y * FurBakeSize + x;
+                                    if (!coverage[sourceIndex]) continue;
 
-                                var hue = Mathf.Repeat(hueMap[p] + phase, 1f);
-                                var rgb = Color.HSVToRGB(hue, 1f, 1f);
-                                colors[p] = (Color32)new Color(rgb.r, rgb.g, rgb.b, 1f);
+                                    var hue = Mathf.Repeat(hueMap[sourceIndex] + phase, 1f);
+                                    var rgb = Color.HSVToRGB(hue, 1f, 1f);
+                                    var color = (Color32)new Color(rgb.r, rgb.g, rgb.b, 1f);
+
+                                    var atlasY = innerStartY + y;
+                                    colors[atlasY * FurBakeSize + x] = color;
+                                }
                             }
 
-                            var tex = new Texture2D(FurBakeSize, FurBakeSize, TextureFormat.RGBA32, false, false)
+                            // Duplicate the first/last inner rows into the padding to avoid bilinear bleeding
+                            // between adjacent phase frames.
+                            for (var x = 0; x < FurBakeSize; x++)
                             {
-                                name = $"NNR_Fur_{Sanitize(rendererName)}_{Sanitize(materialName)}_{subMesh}_P{frame:00}",
-                                wrapMode = TextureWrapMode.Clamp,
-                                filterMode = FilterMode.Bilinear,
-                                anisoLevel = 1
-                            };
-                            tex.SetPixels32(colors);
-                            tex.Apply(false, false);
+                                colors[frameBaseY * FurBakeSize + x] =
+                                    colors[innerStartY * FurBakeSize + x];
 
-                            context.AssetSaver.SaveAsset(tex);
-                            frames[frame] = tex;
+                                colors[(innerStartY + FurBakeSize) * FurBakeSize + x] =
+                                    colors[(innerStartY + FurBakeSize - 1) * FurBakeSize + x];
+                            }
                         }
+
+                        atlas = new Texture2D(FurBakeSize, atlasHeight, TextureFormat.RGBA32, false, false)
+                        {
+                            name = $"NNR_FurAtlas_{Sanitize(rendererName)}_{Sanitize(materialName)}_{subMesh}",
+                            wrapMode = TextureWrapMode.Clamp,
+                            filterMode = FilterMode.Bilinear,
+                            anisoLevel = 1
+                        };
+                        atlas.SetPixels32(colors);
+                        atlas.Apply(false, false);
+                        context.AssetSaver.SaveAsset(atlas);
                     }
                 }
 
