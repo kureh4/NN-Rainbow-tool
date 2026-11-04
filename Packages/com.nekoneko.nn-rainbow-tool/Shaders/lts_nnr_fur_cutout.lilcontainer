@@ -4,15 +4,16 @@ Shader "Hidden/*LIL_SHADER_NAME*/FurCutout"
     {
         lilProperties "Default"
         lilProperties "DefaultFurCutout"
-        lilProperties "nnr_properties.lilblock"
+        lilProperties "lilCustomShaderProperties.lilblock"
     }
 
     HLSLINCLUDE
         #define LIL_RENDER 1
-        #include "nnr_custom.hlsl"
+        #include "custom.hlsl"
     ENDHLSL
 
     lilSubShaderTags {"RenderType" = "TransparentCutout" "Queue" = "AlphaTest"}
+    lilSubShaderInsert "lilCustomShaderInsert.lilblock"
     lilSubShaderBRP "DefaultFur"
     lilSubShaderLWRP "DefaultFur"
     lilSubShaderURP "DefaultFur"
