@@ -27,7 +27,10 @@ namespace Nekoneko.NNRainbow.Editor
     internal sealed class NNRainbowFurBakeData
     {
         public int MainLayer;
-        public Texture2D[] Frames;
+        public Texture2D Atlas;
+        public int FrameCount;
+        public float VScale;
+        public float[] VOffsets;
     }
 
     internal static class NNRainbowTargetScanner
