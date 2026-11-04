@@ -118,9 +118,30 @@ namespace Nekoneko.NNRainbow.Editor
                 return false;
             }
 
+            // Preserve the textures/settings that were already assigned on the DD target material.
+            var mainTex = original.HasProperty("_MainTex") ? original.GetTexture("_MainTex") : null;
+            var mainScale = original.HasProperty("_MainTex") ? original.GetTextureScale("_MainTex") : Vector2.one;
+            var mainOffset = original.HasProperty("_MainTex") ? original.GetTextureOffset("_MainTex") : Vector2.zero;
+            var furNoise = original.HasProperty("_FurNoiseMask") ? original.GetTexture("_FurNoiseMask") : null;
+            var furNoiseScale = original.HasProperty("_FurNoiseMask") ? original.GetTextureScale("_FurNoiseMask") : Vector2.one;
+            var furNoiseOffset = original.HasProperty("_FurNoiseMask") ? original.GetTextureOffset("_FurNoiseMask") : Vector2.zero;
+
             var queue = clone.renderQueue;
             clone.shader = shader;
             clone.renderQueue = queue;
+
+            if (clone.HasProperty("_MainTex"))
+            {
+                clone.SetTexture("_MainTex", mainTex);
+                clone.SetTextureScale("_MainTex", mainScale);
+                clone.SetTextureOffset("_MainTex", mainOffset);
+            }
+            if (clone.HasProperty("_FurNoiseMask"))
+            {
+                clone.SetTexture("_FurNoiseMask", furNoise);
+                clone.SetTextureScale("_FurNoiseMask", furNoiseScale);
+                clone.SetTextureOffset("_FurNoiseMask", furNoiseOffset);
+            }
 
             if (clone.HasProperty("_NNRRainbowTex")) clone.SetTexture("_NNRRainbowTex", rainbowTexture);
             if (clone.HasProperty("_NNRMode")) clone.SetFloat("_NNRMode", 0f);
