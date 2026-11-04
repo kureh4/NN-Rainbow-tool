@@ -49,6 +49,7 @@ namespace Nekoneko.NNRainbow.Editor
                 totalBindings += AddRainbowModeLayer(fx, animatorServices, avatarRoot, target, enable, type, speed);
                 totalBindings += AddStrengthLayer(fx, animatorServices, avatarRoot, target, enable, emission);
                 totalBindings += AddFurColorLayer(fx, animatorServices, avatarRoot, target, enable, type, speed);
+                totalBindings += AddFurBakedRainbowLayer(fx, animatorServices, avatarRoot, target, enable, type, speed);
                 totalBindings += AddFakeShadowLayer(fx, animatorServices, avatarRoot, target, enable);
             }
 
@@ -90,7 +91,7 @@ namespace Nekoneko.NNRainbow.Editor
 
             AddTransition(idle, editing, CondIf(editOpenParameter));
             AddTransition(editing, commit, CondIfNot(editOpenParameter));
-            AddTransition(commit, idle);
+            AddTransition(commit, idle, CondIfNot(editOpenParameter));
         }
 
         private static void AddCopyDriver(VirtualState state, string source, string destination, bool localOnly)
@@ -232,6 +233,127 @@ namespace Nekoneko.NNRainbow.Editor
             AddTransition(sRainbow, sOriginal, CondEquals(typeParameter, 3f));
 
             return maxBindings;
+        }
+
+        private static int AddFurBakedRainbowLayer(
+            VirtualAnimatorController fx,
+            AnimatorServicesContext animatorServices,
+            Transform avatarRoot,
+            NNRainbowTarget target,
+            string enableParameter,
+            string typeParameter,
+            string speedParameter)
+        {
+            if (target.FurBakedSlots.Count == 0) return 0;
+
+            var off = MakeFurBakedClip(animatorServices, avatarRoot, target, FurBakedMode.Off, out var c0);
+            var gradient = MakeFurBakedClip(animatorServices, avatarRoot, target, FurBakedMode.Gradient, out var c1);
+            var flow = MakeFurBakedClip(animatorServices, avatarRoot, target, FurBakedMode.Flowing, out var c2);
+            var maxBindings = Math.Max(c0, Math.Max(c1, c2));
+            if (maxBindings == 0) return 0;
+
+            var layer = fx.AddLayer(LayerPriority.Default, $"NNR/{target.Id}/Fur Baked Rainbow");
+            layer.DefaultWeight = 1f;
+            var sm = layer.StateMachine;
+
+            var sOff = sm.AddState("Fur Rainbow OFF", off);
+            var sGradient = sm.AddState("Fur グラデーション", gradient);
+            var sFlow = sm.AddState("Fur 流れる虹", flow);
+            sOff.WriteDefaultValues = false;
+            sGradient.WriteDefaultValues = false;
+            sFlow.WriteDefaultValues = false;
+            sFlow.Speed = 1f;
+            sFlow.SpeedParameter = speedParameter;
+            sm.DefaultState = sOff;
+
+            AddTransition(sOff, sGradient, CondIf(enableParameter), CondEquals(typeParameter, 2f));
+            AddTransition(sOff, sFlow, CondIf(enableParameter), CondEquals(typeParameter, 3f));
+
+            AddTransition(sGradient, sOff, CondIfNot(enableParameter));
+            AddTransition(sGradient, sOff, CondEquals(typeParameter, 1f));
+            AddTransition(sGradient, sFlow, CondEquals(typeParameter, 3f));
+
+            AddTransition(sFlow, sOff, CondIfNot(enableParameter));
+            AddTransition(sFlow, sOff, CondEquals(typeParameter, 1f));
+            AddTransition(sFlow, sGradient, CondEquals(typeParameter, 2f));
+
+            return maxBindings;
+        }
+
+        private static VirtualClip MakeFurBakedClip(
+            AnimatorServicesContext animatorServices,
+            Transform avatarRoot,
+            NNRainbowTarget target,
+            FurBakedMode mode,
+            out int bindingCount)
+        {
+            var native = new AnimationClip
+            {
+                name = $"NNR_{target.Id}_FurBaked_{mode}",
+                frameRate = 12f
+            };
+
+            if (mode == FurBakedMode.Flowing)
+            {
+                var settings = AnimationUtility.GetAnimationClipSettings(native);
+                settings.loopTime = true;
+                AnimationUtility.SetAnimationClipSettings(native, settings);
+            }
+
+            bindingCount = 0;
+
+            foreach (var rendererPair in target.FurBakedSlots)
+            {
+                var renderer = rendererPair.Key;
+                if (renderer == null) continue;
+
+                var materials = renderer.sharedMaterials ?? Array.Empty<Material>();
+                var path = ResolvePath(animatorServices, avatarRoot, renderer);
+
+                foreach (var slotPair in rendererPair.Value)
+                {
+                    var slot = slotPair.Key;
+                    var data = slotPair.Value;
+                    if (data == null || data.Frames == null || data.Frames.Length == 0) continue;
+                    if (slot < 0 || slot >= materials.Length || materials[slot] == null) continue;
+
+                    var suffix = data.MainLayer == 2 ? "2nd" : "3rd";
+                    var useProperty = MaterialProperty(materials.Length, slot, $"_UseMain{suffix}Tex");
+                    var textureProperty = MaterialProperty(materials.Length, slot, $"_Main{suffix}Tex");
+
+                    AddConstant(native, path, typeof(Renderer), useProperty, mode == FurBakedMode.Off ? 0f : 1f);
+                    bindingCount++;
+
+                    if (mode == FurBakedMode.Gradient)
+                    {
+                        AddObjectReferenceCurve(native, path, typeof(Renderer), textureProperty,
+                            new[]
+                            {
+                                new ObjectReferenceKeyframe { time = 0f, value = data.Frames[0] }
+                            });
+                        bindingCount++;
+                    }
+                    else if (mode == FurBakedMode.Flowing)
+                    {
+                        var keys = new ObjectReferenceKeyframe[data.Frames.Length];
+                        for (var i = 0; i < data.Frames.Length; i++)
+                        {
+                            keys[i] = new ObjectReferenceKeyframe
+                            {
+                                time = (float)i / data.Frames.Length,
+                                value = data.Frames[i]
+                            };
+                        }
+
+                        AddObjectReferenceCurve(native, path, typeof(Renderer), textureProperty, keys);
+                        bindingCount++;
+                    }
+                }
+            }
+
+            var result = VirtualClip.Clone(animatorServices.ControllerContext.CloneContext, native);
+            UnityEngine.Object.DestroyImmediate(native);
+            return result;
         }
 
         private static VirtualClip MakeFurColorOffClip(
@@ -484,8 +606,9 @@ namespace Nekoneko.NNRainbow.Editor
                 if (!target.SupportedSlots.TryGetValue(renderer, out var slots) || slots.Count == 0) continue;
 
                 var emissionLayer = target.EmissionLayerByRenderer.TryGetValue(renderer, out var el) ? el : 0;
-                var hasEmissionLayer = emissionLayer != 0;
+                if (emissionLayer == 0) continue;
 
+                var furSlots = target.FurSlots.TryGetValue(renderer, out var fs) ? fs : null;
                 var materials = renderer.sharedMaterials ?? Array.Empty<Material>();
                 var path = ResolvePath(animatorServices, avatarRoot, renderer);
                 var suffix = emissionLayer == 1 ? "" : "2nd";
@@ -494,36 +617,23 @@ namespace Nekoneko.NNRainbow.Editor
                 var isFlow = mode == RainbowMode.Flowing;
                 var isDiagonal = isGradient || isFlow;
 
-                // Stock lilToon fallback for normal materials.
                 var tiling = isGlobal ? 0.001f : isDiagonal ? DiagonalGradientTiling : 1f;
                 var scrollX = (isGlobal || isFlow) ? Mathf.Clamp01(speed01) * MaxScrollSpeed : 0f;
                 var rotation = isDiagonal ? DiagonalGradientAngle : 0f;
 
-                // Spatial Fur shader ignores UV layout and uses object-space X-Y instead.
-                var spatialMode = isGradient ? 2f : isFlow ? 3f : 0f;
-                var spatialScroll = isFlow ? Mathf.Clamp01(speed01) * MaxScrollSpeed : 0f;
-
                 foreach (var slot in slots)
                 {
                     if (slot < 0 || slot >= materials.Length || materials[slot] == null) continue;
+                    if (furSlots != null && furSlots.Contains(slot)) continue;
 
-                    if (hasEmissionLayer)
-                    {
-                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ST.x"), tiling); bindingCount++;
-                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ST.y"), tiling); bindingCount++;
-                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ST.z"), 0f); bindingCount++;
-                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ST.w"), 0f); bindingCount++;
-                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ScrollRotate.x"), scrollX); bindingCount++;
-                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ScrollRotate.y"), 0f); bindingCount++;
-                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ScrollRotate.z"), rotation); bindingCount++;
-                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ScrollRotate.w"), 0f); bindingCount++;
-                    }
-
-                    if (IsSpatialFurSlot(target, renderer, slot))
-                    {
-                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_NNRMode"), spatialMode); bindingCount++;
-                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_NNRScroll"), spatialScroll); bindingCount++;
-                    }
+                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ST.x"), tiling); bindingCount++;
+                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ST.y"), tiling); bindingCount++;
+                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ST.z"), 0f); bindingCount++;
+                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ST.w"), 0f); bindingCount++;
+                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ScrollRotate.x"), scrollX); bindingCount++;
+                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ScrollRotate.y"), 0f); bindingCount++;
+                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ScrollRotate.z"), rotation); bindingCount++;
+                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Map_ScrollRotate.w"), 0f); bindingCount++;
                 }
             }
 
@@ -536,14 +646,16 @@ namespace Nekoneko.NNRainbow.Editor
         {
             var native = new AnimationClip { name = $"NNR_{target.Id}_Blend_{blend:0.##}", frameRate = 60f };
             bindingCount = 0;
+
             foreach (var renderer in target.Renderers)
             {
                 if (renderer == null) continue;
                 if (!target.SupportedSlots.TryGetValue(renderer, out var slots) || slots.Count == 0) continue;
 
                 var emissionLayer = target.EmissionLayerByRenderer.TryGetValue(renderer, out var el) ? el : 0;
-                var hasEmissionLayer = emissionLayer != 0;
+                if (emissionLayer == 0) continue;
 
+                var furSlots = target.FurSlots.TryGetValue(renderer, out var fs) ? fs : null;
                 var materials = renderer.sharedMaterials ?? Array.Empty<Material>();
                 var path = ResolvePath(animatorServices, avatarRoot, renderer);
                 var suffix = emissionLayer == 1 ? "" : "2nd";
@@ -551,31 +663,16 @@ namespace Nekoneko.NNRainbow.Editor
                 foreach (var slot in slots)
                 {
                     if (slot < 0 || slot >= materials.Length || materials[slot] == null) continue;
+                    if (furSlots != null && furSlots.Contains(slot)) continue;
 
-                    if (hasEmissionLayer)
-                    {
-                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Blend"), blend);
-                        bindingCount++;
-                    }
-
-                    if (IsSpatialFurSlot(target, renderer, slot))
-                    {
-                        AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, "_NNRBlend"), blend);
-                        bindingCount++;
-                    }
+                    AddConstant(native, path, typeof(Renderer), MaterialProperty(materials.Length, slot, $"_Emission{suffix}Blend"), blend);
+                    bindingCount++;
                 }
             }
+
             var result = VirtualClip.Clone(animatorServices.ControllerContext.CloneContext, native);
             UnityEngine.Object.DestroyImmediate(native);
             return result;
-        }
-
-        private static bool IsSpatialFurSlot(NNRainbowTarget target, Renderer renderer, int slot)
-        {
-            return target != null &&
-                   renderer != null &&
-                   target.FurSpatialSlots.TryGetValue(renderer, out var slots) &&
-                   slots.Contains(slot);
         }
 
         private static string MaterialProperty(int materialCount, int slot, string property)
@@ -598,6 +695,19 @@ namespace Nekoneko.NNRainbow.Editor
             AnimationUtility.SetEditorCurve(clip, new EditorCurveBinding { path = path, type = type, propertyName = propertyName }, AnimationCurve.Constant(0f, 1f / 60f, value));
         }
 
+        private static void AddObjectReferenceCurve(
+            AnimationClip clip,
+            string path,
+            Type type,
+            string propertyName,
+            ObjectReferenceKeyframe[] keys)
+        {
+            AnimationUtility.SetObjectReferenceCurve(
+                clip,
+                new EditorCurveBinding { path = path, type = type, propertyName = propertyName },
+                keys);
+        }
+
         private static AnimatorCondition CondIf(string parameter) => new AnimatorCondition { mode = AnimatorConditionMode.If, parameter = parameter, threshold = 0f };
         private static AnimatorCondition CondIfNot(string parameter) => new AnimatorCondition { mode = AnimatorConditionMode.IfNot, parameter = parameter, threshold = 0f };
         private static AnimatorCondition CondEquals(string parameter, float value) => new AnimatorCondition { mode = AnimatorConditionMode.Equals, parameter = parameter, threshold = value };
@@ -614,5 +724,6 @@ namespace Nekoneko.NNRainbow.Editor
         }
 
         private enum RainbowMode { Off, GlobalHue, Gradient, Flowing }
+        private enum FurBakedMode { Off, Gradient, Flowing }
     }
 }
