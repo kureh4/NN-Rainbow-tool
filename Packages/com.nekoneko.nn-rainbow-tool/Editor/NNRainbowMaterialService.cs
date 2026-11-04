@@ -182,6 +182,20 @@ namespace Nekoneko.NNRainbow.Editor
             clone.CopyPropertiesFromMaterial(original);
             clone.renderQueue = original.renderQueue;
 
+            if (!clone.HasProperty("_NNRMode") ||
+                !clone.HasProperty("_NNRSpeed") ||
+                !clone.HasProperty("_NNRScale") ||
+                !clone.HasProperty("_NNROffset") ||
+                !clone.HasProperty("_NNRStrength") ||
+                !clone.HasProperty("_NNRGlow"))
+            {
+                error = "custom lilToon Fur shader loaded, but NN Rainbow properties were not generated. shader=" +
+                        shader.name + ", path=" + shaderPath;
+                UnityEngine.Object.DestroyImmediate(clone);
+                clone = null;
+                return false;
+            }
+
             var bounds = renderer.localBounds;
             var diagonalRange = Mathf.Max(
                 0.0001f,

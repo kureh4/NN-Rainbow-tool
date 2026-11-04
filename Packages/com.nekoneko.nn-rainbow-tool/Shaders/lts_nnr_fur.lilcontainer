@@ -4,15 +4,16 @@ Shader "Hidden/*LIL_SHADER_NAME*/Fur"
     {
         lilProperties "Default"
         lilProperties "DefaultFurTransparent"
-        lilProperties "nnr_properties.lilblock"
+        lilProperties "lilCustomShaderProperties.lilblock"
     }
 
     HLSLINCLUDE
         #define LIL_RENDER 2
-        #include "nnr_custom.hlsl"
+        #include "custom.hlsl"
     ENDHLSL
 
     lilSubShaderTags {"RenderType" = "TransparentCutout" "Queue" = "Transparent"}
+    lilSubShaderInsert "lilCustomShaderInsert.lilblock"
     lilSubShaderBRP "DefaultFur"
     lilSubShaderLWRP "DefaultFur"
     lilSubShaderURP "DefaultFur"
