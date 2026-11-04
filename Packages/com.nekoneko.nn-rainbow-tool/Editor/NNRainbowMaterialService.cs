@@ -10,7 +10,7 @@ namespace Nekoneko.NNRainbow.Editor
     {
         private const string RainbowTextureGuid = "89070c92845f40b5917a66d82036f5ab";
         private const float SpatialRainbowSpan = 5f / 6f;
-        private const int FurFlowFrames = 12;
+        private const int FurFlowFrames = 60;
 
 
         public static bool ApplyBuildClones(
@@ -183,8 +183,10 @@ namespace Nekoneko.NNRainbow.Editor
             var diagonalRange = Mathf.Max(
                 0.0001f,
                 2f * (Mathf.Abs(bounds.extents.x) + Mathf.Abs(bounds.extents.y)));
+            // Diagonal axis: upper-left -> lower-right.
+            // The shader uses X + Y, so normalize that same axis here.
             var diagonalMin =
-                bounds.center.x - bounds.center.y -
+                bounds.center.x + bounds.center.y -
                 Mathf.Abs(bounds.extents.x) - Mathf.Abs(bounds.extents.y);
 
             var scale = SpatialRainbowSpan / diagonalRange;

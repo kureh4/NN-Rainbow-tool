@@ -354,7 +354,7 @@ namespace Nekoneko.NNRainbow.Editor
             var native = new AnimationClip
             {
                 name = $"NNR_{target.Id}_FurSwap_{mode}",
-                frameRate = 12f
+                frameRate = 60f
             };
 
             if (mode == FurSwapMode.Flow || mode == FurSwapMode.FlowGlow)
