@@ -49,7 +49,8 @@ namespace Nekoneko.NNRainbow.Editor
                 totalBindings += AddRainbowModeLayer(fx, animatorServices, avatarRoot, target, enable, type, speed);
                 totalBindings += AddStrengthLayer(fx, animatorServices, avatarRoot, target, enable, emission);
                 totalBindings += AddFurColorLayer(fx, animatorServices, avatarRoot, target, enable, type, speed);
-                totalBindings += AddFurUvRainbowLayer(fx, animatorServices, avatarRoot, target, enable, type, speed);
+                totalBindings += AddFurCustomRainbowLayer(fx, animatorServices, avatarRoot, target, enable, type, speed);
+                totalBindings += AddFurCustomGlowLayer(fx, animatorServices, avatarRoot, target, enable, emission);
                 totalBindings += AddFakeShadowLayer(fx, animatorServices, avatarRoot, target, enable);
             }
 
@@ -206,9 +207,9 @@ namespace Nekoneko.NNRainbow.Editor
         {
             if (target.FurSlots.Count == 0) return 0;
 
-            // Type=1 は従来どおり Fur を残した全体色相。
-            // Type=2 / Type=3 は Fur を消さず、別レイヤーで stock lilToon の Main 2nd/3rd に
-            // 追加UVチャンネルから読んだ虹テクスチャを Multiply 合成する。
+            // Type=1 は従来どおり Fur の _Color を動かす安定処理。
+            // Type=2 / Type=3 は lilToon公式カスタムShader側で処理するため、
+            // このレイヤーではFur本体色を元の値へ戻す。
             var original = MakeFurColorOffClip(animatorServices, avatarRoot, target, out var c0);
             var rainbow = MakeFurRainbowClip(animatorServices, avatarRoot, target, out var c1);
             var maxBindings = Math.Max(c0, c1);
@@ -235,7 +236,7 @@ namespace Nekoneko.NNRainbow.Editor
             return maxBindings;
         }
 
-        private static int AddFurUvRainbowLayer(
+        private static int AddFurCustomRainbowLayer(
             VirtualAnimatorController fx,
             AnimatorServicesContext animatorServices,
             Transform avatarRoot,
@@ -244,26 +245,32 @@ namespace Nekoneko.NNRainbow.Editor
             string typeParameter,
             string speedParameter)
         {
-            if (target.FurUvSlots.Count == 0) return 0;
+            if (target.FurCustomSlots.Count == 0) return 0;
 
-            var off = MakeFurUvClip(animatorServices, avatarRoot, target, FurUvMode.Off, out var c0);
-            var gradient = MakeFurUvClip(animatorServices, avatarRoot, target, FurUvMode.Gradient, out var c1);
-            var flow = MakeFurUvClip(animatorServices, avatarRoot, target, FurUvMode.Flowing, out var c2);
-            var maxBindings = Math.Max(c0, Math.Max(c1, c2));
+            var off = MakeFurCustomModeClip(
+                animatorServices, avatarRoot, target, RainbowMode.Off, 0f, out var c0);
+            var gradient = MakeFurCustomModeClip(
+                animatorServices, avatarRoot, target, RainbowMode.Gradient, 0f, out var c1);
+            var flow0 = MakeFurCustomModeClip(
+                animatorServices, avatarRoot, target, RainbowMode.Flowing, 0f, out var c20);
+            var flow1 = MakeFurCustomModeClip(
+                animatorServices, avatarRoot, target, RainbowMode.Flowing, MaxScrollSpeed, out var c21);
+
+            var maxBindings = Math.Max(Math.Max(c0, c1), Math.Max(c20, c21));
             if (maxBindings == 0) return 0;
 
-            var layer = fx.AddLayer(LayerPriority.Default, $"NNR/{target.Id}/Fur UV Rainbow");
+            var flowTree = MakeSpeedTree(target, "Fur Flowing Rainbow", speedParameter, flow0, flow1);
+
+            var layer = fx.AddLayer(LayerPriority.Default, $"NNR/{target.Id}/Fur lilToon Rainbow");
             layer.DefaultWeight = 1f;
             var sm = layer.StateMachine;
 
             var sOff = sm.AddState("Fur Rainbow OFF", off);
             var sGradient = sm.AddState("Fur グラデーション", gradient);
-            var sFlow = sm.AddState("Fur 流れる虹", flow);
+            var sFlow = sm.AddState("Fur 流れる虹", flowTree);
             sOff.WriteDefaultValues = false;
             sGradient.WriteDefaultValues = false;
             sFlow.WriteDefaultValues = false;
-            sFlow.Speed = 1f;
-            sFlow.SpeedParameter = speedParameter;
             sm.DefaultState = sOff;
 
             AddTransition(sOff, sGradient, CondIf(enableParameter), CondEquals(typeParameter, 2f));
@@ -280,71 +287,79 @@ namespace Nekoneko.NNRainbow.Editor
             return maxBindings;
         }
 
-        private static VirtualClip MakeFurUvClip(
+        private static int AddFurCustomGlowLayer(
+            VirtualAnimatorController fx,
             AnimatorServicesContext animatorServices,
             Transform avatarRoot,
             NNRainbowTarget target,
-            FurUvMode mode,
+            string enableParameter,
+            string glowParameter)
+        {
+            if (target.FurCustomSlots.Count == 0) return 0;
+
+            var normal = MakeFurCustomGlowClip(
+                animatorServices, avatarRoot, target, 0f, out var c0);
+            var glow = MakeFurCustomGlowClip(
+                animatorServices, avatarRoot, target, 1f, out var c1);
+
+            var maxBindings = Math.Max(c0, c1);
+            if (maxBindings == 0) return 0;
+
+            var layer = fx.AddLayer(LayerPriority.Default, $"NNR/{target.Id}/Fur Glow");
+            layer.DefaultWeight = 1f;
+            var sm = layer.StateMachine;
+
+            var sNormal = sm.AddState("Fur Glow OFF", normal);
+            var sGlow = sm.AddState("Fur Glow ON", glow);
+            sNormal.WriteDefaultValues = false;
+            sGlow.WriteDefaultValues = false;
+            sm.DefaultState = sNormal;
+
+            AddTransition(sNormal, sGlow, CondIf(enableParameter), CondIf(glowParameter));
+            AddTransition(sGlow, sNormal, CondIfNot(enableParameter));
+            AddTransition(sGlow, sNormal, CondIfNot(glowParameter));
+
+            return maxBindings;
+        }
+
+        private static VirtualClip MakeFurCustomModeClip(
+            AnimatorServicesContext animatorServices,
+            Transform avatarRoot,
+            NNRainbowTarget target,
+            RainbowMode mode,
+            float speed,
             out int bindingCount)
         {
             var native = new AnimationClip
             {
-                name = $"NNR_{target.Id}_FurUv_{mode}",
+                name = $"NNR_{target.Id}_FurCustom_{mode}_{speed:0.##}",
                 frameRate = 60f
             };
-
-            if (mode == FurUvMode.Flowing)
-            {
-                var settings = AnimationUtility.GetAnimationClipSettings(native);
-                settings.loopTime = true;
-                AnimationUtility.SetAnimationClipSettings(native, settings);
-            }
-
             bindingCount = 0;
 
-            foreach (var rendererPair in target.FurUvSlots)
+            var shaderMode = mode == RainbowMode.Gradient ? 2f :
+                             mode == RainbowMode.Flowing ? 3f : 0f;
+            var strength = mode == RainbowMode.Gradient || mode == RainbowMode.Flowing ? 1f : 0f;
+
+            foreach (var pair in target.FurCustomSlots)
             {
-                var renderer = rendererPair.Key;
+                var renderer = pair.Key;
                 if (renderer == null) continue;
 
                 var materials = renderer.sharedMaterials ?? Array.Empty<Material>();
                 var path = ResolvePath(animatorServices, avatarRoot, renderer);
 
-                foreach (var slotPair in rendererPair.Value)
+                foreach (var slot in pair.Value)
                 {
-                    var slot = slotPair.Key;
-                    var data = slotPair.Value;
-                    if (data == null) continue;
                     if (slot < 0 || slot >= materials.Length || materials[slot] == null) continue;
 
-                    var suffix = data.MainLayer == 2 ? "2nd" : "3rd";
-                    var useProperty = MaterialProperty(materials.Length, slot, $"_UseMain{suffix}Tex");
-                    var stX = MaterialProperty(materials.Length, slot, $"_Main{suffix}Tex_ST.x");
-                    var stY = MaterialProperty(materials.Length, slot, $"_Main{suffix}Tex_ST.y");
-                    var stZ = MaterialProperty(materials.Length, slot, $"_Main{suffix}Tex_ST.z");
-                    var stW = MaterialProperty(materials.Length, slot, $"_Main{suffix}Tex_ST.w");
-
-                    AddConstant(native, path, typeof(Renderer), useProperty, mode == FurUvMode.Off ? 0f : 1f);
-                    bindingCount++;
-
-                    if (mode != FurUvMode.Off)
-                    {
-                        AddConstant(native, path, typeof(Renderer), stX, 1f);
-                        AddConstant(native, path, typeof(Renderer), stY, 1f);
-                        AddConstant(native, path, typeof(Renderer), stW, 0f);
-                        bindingCount += 3;
-                    }
-
-                    if (mode == FurUvMode.Gradient)
-                    {
-                        AddConstant(native, path, typeof(Renderer), stZ, 0f);
-                        bindingCount++;
-                    }
-                    else if (mode == FurUvMode.Flowing)
-                    {
-                        AddCurve(native, path, typeof(Renderer), stZ, MakeFlowOffsetCurve());
-                        bindingCount++;
-                    }
+                    AddConstant(native, path, typeof(Renderer),
+                        MaterialProperty(materials.Length, slot, "_NNRMode"), shaderMode);
+                    AddConstant(native, path, typeof(Renderer),
+                        MaterialProperty(materials.Length, slot, "_NNRSpeed"), speed);
+                    AddConstant(native, path, typeof(Renderer),
+                        MaterialProperty(materials.Length, slot, "_NNRStrength"), strength);
+                    bindingCount += 3;
                 }
             }
 
@@ -353,12 +368,41 @@ namespace Nekoneko.NNRainbow.Editor
             return result;
         }
 
-        private static AnimationCurve MakeFlowOffsetCurve()
+        private static VirtualClip MakeFurCustomGlowClip(
+            AnimatorServicesContext animatorServices,
+            Transform avatarRoot,
+            NNRainbowTarget target,
+            float glow,
+            out int bindingCount)
         {
-            var curve = AnimationCurve.Linear(0f, 0f, 1f, 1f);
-            curve.preWrapMode = WrapMode.Loop;
-            curve.postWrapMode = WrapMode.Loop;
-            return curve;
+            var native = new AnimationClip
+            {
+                name = $"NNR_{target.Id}_FurGlow_{glow:0}",
+                frameRate = 60f
+            };
+            bindingCount = 0;
+
+            foreach (var pair in target.FurCustomSlots)
+            {
+                var renderer = pair.Key;
+                if (renderer == null) continue;
+
+                var materials = renderer.sharedMaterials ?? Array.Empty<Material>();
+                var path = ResolvePath(animatorServices, avatarRoot, renderer);
+
+                foreach (var slot in pair.Value)
+                {
+                    if (slot < 0 || slot >= materials.Length || materials[slot] == null) continue;
+
+                    AddConstant(native, path, typeof(Renderer),
+                        MaterialProperty(materials.Length, slot, "_NNRGlow"), glow);
+                    bindingCount++;
+                }
+            }
+
+            var result = VirtualClip.Clone(animatorServices.ControllerContext.CloneContext, native);
+            UnityEngine.Object.DestroyImmediate(native);
+            return result;
         }
 
         private static VirtualClip MakeFurColorOffClip(
@@ -716,6 +760,5 @@ namespace Nekoneko.NNRainbow.Editor
         }
 
         private enum RainbowMode { Off, GlobalHue, Gradient, Flowing }
-        private enum FurUvMode { Off, Gradient, Flowing }
     }
 }
