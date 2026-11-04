@@ -169,11 +169,13 @@ namespace Nekoneko.NNRainbow.Editor
                 return false;
             }
 
-            clone = new Material(shader)
+            // Preserve the original lilToon material exactly, then swap only the shader.
+            // This avoids rebuilding the material property sheet from a different shader first.
+            clone = new Material(original)
             {
                 name = original.name + "__NNR_LILTOON_FUR"
             };
-            clone.CopyPropertiesFromMaterial(original);
+            clone.shader = shader;
             clone.renderQueue = original.renderQueue;
 
             if (!clone.HasProperty("_NNRMode") ||
@@ -183,8 +185,10 @@ namespace Nekoneko.NNRainbow.Editor
                 !clone.HasProperty("_NNRStrength") ||
                 !clone.HasProperty("_NNRGlow"))
             {
-                error = "custom lilToon Fur shader loaded, but NN Rainbow properties were not generated. shader=" +
-                        shader.name + ", path=" + shaderPath;
+                error = "NN Rainbow shader swap completed but the material still cannot see NN Rainbow properties. " +
+                        "shader=" + (clone.shader != null ? clone.shader.name : "<null>") +
+                        ", path=" + shaderPath +
+                        ", shaderPropertyCheck=" + NNRainbowShaderBootstrap.DescribeRainbowProperties(shader);
                 UnityEngine.Object.DestroyImmediate(clone);
                 clone = null;
                 return false;
